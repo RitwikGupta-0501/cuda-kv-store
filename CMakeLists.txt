@@ -31,3 +31,12 @@ add_executable(gpu-kvstore
 target_link_libraries(gpu-kvstore
     CUDA::cudart
 )
+
+# Test executable
+add_executable(test_hash
+    tests/test_hash.cpp
+)
+
+target_link_libraries(test_hash
+    CUDA::cudart
+)
