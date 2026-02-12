@@ -1,0 +1,81 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# Compiled binaries
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+gpu-kvstore
+hello_cuda
+test_hash
+test_kernel
+test_integration
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# CUDA
+*.i
+*.ii
+*.gpu
+*.ptx
+*.cubin
+*.fatbin
+
+# Compiler outputs
+*.out
+*.app
+*.dSYM/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Python (for benchmarks)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Benchmark data
+benchmarks/data/
+benchmarks/results/
+*.csv
+*.png
+*.pdf
+
+# Profiling outputs
+*.nvvp
+*.qdrep
+*.sqlite
+nsight-*/
+
+# Logs
+*.log
+
+# Data files (large datasets)
+*.bin
+*.dat
+
+# Backup files
+*.bak
+*.backup
