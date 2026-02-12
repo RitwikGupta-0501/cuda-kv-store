@@ -2,6 +2,9 @@
 #include <iostream>
 
 int main(int argc, char **argv) {
+  (void)argc;
+  (void)argv;
+
   std::cout << "Initializing GPU Key-Value Store...\n";
 
   kvstore::SystemConfig config;

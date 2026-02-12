@@ -27,6 +27,7 @@ bool init_system_config(SystemConfig &config) {
 
   // Store GPU info
   strncpy(config.gpu_name, prop.name, sizeof(config.gpu_name) - 1);
+  config.gpu_name[sizeof(config.gpu_name) - 1] = '\0';
   config.gpu_compute_major = prop.major;
   config.gpu_compute_minor = prop.minor;
   config.gpu_multiprocessors = prop.multiProcessorCount;
