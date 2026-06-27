@@ -92,9 +92,9 @@ public:
         }
 
         // Initialize stash
-        stash_queue_->head.store(0, std::memory_order_release);
+        stash_queue_->head = 0;
         stash_queue_->tail = 0;
-        stash_queue_->needs_rehash.store(0, std::memory_order_release);
+        stash_queue_->needs_rehash = 0;
 
         std::cout << "Stash allocated: " << STASH_CAPACITY << " entries (~"
                   << (sizeof(StashQueue) / 1024) << " KB)" << std::endl;
