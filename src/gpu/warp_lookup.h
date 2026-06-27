@@ -73,6 +73,7 @@ __device__ inline LookupResult warp_lookup_device(
     int found_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.found)) - 1;
     if (found_lane >= 0) {
         result.value = __shfl_sync(0xFFFFFFFFu, result.value, found_lane);
+        result.found = true;
     }
 
     return result;
