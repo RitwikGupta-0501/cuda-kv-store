@@ -105,6 +105,16 @@ add_executable(test_cuckoo_insert
 target_link_libraries(test_cuckoo_insert GTest::gtest_main CUDA::cudart)
 add_test(NAME CuckooInsertTests COMMAND test_cuckoo_insert)
 
+# Debug kernel tests
+add_executable(test_debug_kernels
+    tests/unit/test_debug_kernels.cu
+    src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
+    src/gpu/bucket_cuckoo.h
+)
+target_link_libraries(test_debug_kernels GTest::gtest_main CUDA::cudart)
+add_test(NAME DebugKernels COMMAND test_debug_kernels)
+
 # Eviction chain correctness tests (Phase 4 Extended)
 add_executable(test_eviction_chains
     tests/unit/test_eviction_chains.cu
