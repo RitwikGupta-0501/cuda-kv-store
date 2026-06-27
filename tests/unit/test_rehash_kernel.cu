@@ -52,7 +52,7 @@ TEST_F(RehashKernelTest, RehashContextStructure) {
     new_table.load_factor_limit = 1000000;
 
     StashQueue stash;
-    stash.head.store(0, std::memory_order_release);
+    stash.head = 0;
 
     RehashContext ctx;
     ctx.d_old_table = &old_table;
@@ -61,7 +61,7 @@ TEST_F(RehashKernelTest, RehashContextStructure) {
 
     EXPECT_EQ(ctx.d_old_table->num_buckets, 1000000) << "old table buckets";
     EXPECT_EQ(ctx.d_new_table->num_buckets, 2000000) << "new table buckets (doubled)";
-    EXPECT_EQ(ctx.d_stash->head.load(), 0) << "stash head initialized";
+    EXPECT_EQ(ctx.d_stash->head, 0) << "stash head initialized";
 }
 
 // Test 4: Table capacity doubling
@@ -173,8 +173,6 @@ TEST_F(RehashKernelTest, StashDrainCoordinates) {
     EXPECT_LE(old_hash.b1, old_mask) << "Old hash valid";
     EXPECT_LE(new_hash.b1, new_mask) << "New hash valid";
 }
-
-}  // namespace
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

@@ -81,7 +81,7 @@ add_test(NAME ArenaAllocatorTests COMMAND test_arena_allocator)
 
 # Warp lookup kernel unit tests (Phase 3)
 add_executable(test_warp_lookup
-    tests/unit/test_warp_lookup.cpp
+    tests/unit/test_warp_lookup.cu
     src/gpu/warp_lookup.cu
     src/gpu/xxhash3.cu
     src/gpu/bucket_cuckoo.h
@@ -95,7 +95,7 @@ add_test(NAME WarpLookupTests COMMAND test_warp_lookup)
 
 # Cuckoo insertion kernel unit tests (Phase 4)
 add_executable(test_cuckoo_insert
-    tests/unit/test_cuckoo_insert.cpp
+    tests/unit/test_cuckoo_insert.cu
     src/gpu/cuckoo_insert.cu
     src/gpu/xxhash3.cu
     src/gpu/bucket_cuckoo.h
@@ -113,7 +113,7 @@ add_test(NAME EvictionChainTests COMMAND test_eviction_chains)
 
 # Rehashing kernel unit tests (Phase 5)
 add_executable(test_rehash_kernel
-    tests/unit/test_rehash_kernel.cpp
+    tests/unit/test_rehash_kernel.cu
     src/gpu/rehash_kernel.cu
     src/gpu/xxhash3.cu
     src/gpu/bucket_cuckoo.h
