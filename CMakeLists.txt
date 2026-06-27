@@ -82,6 +82,9 @@ add_test(NAME ArenaAllocatorTests COMMAND test_arena_allocator)
 # Warp lookup kernel unit tests (Phase 3)
 add_executable(test_warp_lookup
     tests/unit/test_warp_lookup.cpp
+    src/gpu/warp_lookup.cu
+    src/gpu/xxhash3.cu
+    src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_warp_lookup GTest::gtest_main CUDA::cudart)
 add_test(NAME WarpLookupTests COMMAND test_warp_lookup)
