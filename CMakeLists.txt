@@ -57,6 +57,7 @@ target_link_libraries(hardware_validation CUDA::cudart)
 # Hash function unit tests (Phase 1)
 add_executable(test_xxhash3
     tests/unit/test_xxhash3.cpp
+    src/gpu/xxhash3.cu
 )
 target_link_libraries(test_xxhash3 GTest::gtest_main CUDA::cudart)
 add_test(NAME XXHash3Tests COMMAND test_xxhash3)
@@ -100,6 +101,7 @@ add_test(NAME LookupCorrectnessTests COMMAND test_lookup_correctness)
 # Hash throughput benchmark (Phase 1)
 add_executable(bench_hash_throughput
     benchmarks/hash_throughput.cu
+    src/gpu/xxhash3.cu
 )
 target_link_libraries(bench_hash_throughput CUDA::cudart)
 
