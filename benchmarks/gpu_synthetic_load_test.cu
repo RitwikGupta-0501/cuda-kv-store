@@ -103,7 +103,7 @@ int main(int argc, char** argv) {
         batch.h_hops = hops.data();
         batch.num_keys = current_batch_size;
         
-        warp_insert_batch(d_table, d_stash, batch);
+        warp_insert_batch(*d_table, d_stash, batch);
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
             if (statuses[i] == INSERT_SUCCESS) {
@@ -141,7 +141,7 @@ int main(int argc, char** argv) {
         l_batch.h_found = found_flags.data();
         l_batch.num_keys = current_batch_size;
         
-        warp_lookup_batch(d_table, l_batch);
+        warp_lookup_batch(*d_table, l_batch);
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
             if (found_flags[i]) {
@@ -177,7 +177,7 @@ int main(int argc, char** argv) {
         l_batch.h_found = found_flags.data();
         l_batch.num_keys = current_batch_size;
         
-        warp_lookup_batch(d_table, l_batch);
+        warp_lookup_batch(*d_table, l_batch);
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
             if (found_flags[i]) false_positives++;
