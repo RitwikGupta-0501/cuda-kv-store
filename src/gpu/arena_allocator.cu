@@ -133,10 +133,8 @@ private:
         table->bucket_mask = (uint32_t)(num_buckets - 1);
         table->load_factor_limit = num_buckets / 2;  // 50% load factor
 
-        // Initialize all buckets
-        for (size_t i = 0; i < num_buckets; ++i) {
-            bucket_init(&arena_base[i]);
-        }
+        // Initialize all buckets by clearing memory on the device
+        cudaMemset(arena_base, 0, num_buckets * sizeof(Bucket));
     }
 
     // Initialization flag
