@@ -6,6 +6,7 @@
 #include <cuda_runtime.h>
 #include <vector>
 #include <map>
+#include <set>
 #include <random>
 #include "../src/gpu/bucket_cuckoo.h"
 #include "../src/gpu/xxhash3.h"
@@ -75,8 +76,15 @@ int main(int argc, char** argv) {
     std::mt19937 rng(42);
     std::uniform_int_distribution<uint32_t> dist(1, 0xFFFFFFFE); // Avoid 0
 
+    std::set<uint32_t> unique_keys;
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
-        keys[i] = dist(rng);
+        uint32_t k;
+        do {
+            k = dist(rng);
+        } while (unique_keys.count(k) > 0);
+        
+        unique_keys.insert(k);
+        keys[i] = k;
         values[i] = dist(rng);
     }
 
