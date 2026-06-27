@@ -75,6 +75,9 @@ __device__ inline InsertResult warp_insert_device(
         // Broadcast success from any lane
         int success_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.status == INSERT_SUCCESS)) - 1;
         if (success_lane >= 0) {
+            result.status = (InsertStatus)__shfl_sync(0xFFFFFFFFu, (uint32_t)result.status, success_lane);
+            result.slot_used = __shfl_sync(0xFFFFFFFFu, result.slot_used, success_lane);
+            result.hops = __shfl_sync(0xFFFFFFFFu, result.hops, success_lane);
             return result;
         }
 
@@ -100,6 +103,9 @@ __device__ inline InsertResult warp_insert_device(
         // Broadcast success from any lane
         success_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.status == INSERT_SUCCESS)) - 1;
         if (success_lane >= 0) {
+            result.status = (InsertStatus)__shfl_sync(0xFFFFFFFFu, (uint32_t)result.status, success_lane);
+            result.slot_used = __shfl_sync(0xFFFFFFFFu, result.slot_used, success_lane);
+            result.hops = __shfl_sync(0xFFFFFFFFu, result.hops, success_lane);
             return result;
         }
 

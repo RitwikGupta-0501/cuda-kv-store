@@ -63,7 +63,7 @@ TEST_F(RehashKernelTest, RealRehashExecution) {
     h_stash.entries[0].value = 111111;
     h_stash.entries[1].key = stash_key2;
     h_stash.entries[1].value = 222222;
-    h_stash.tail = 2; // two items in stash
+    h_stash.head = 2; // two items in stash
     
     cudaMemcpy(stash_, &h_stash, sizeof(StashQueue), cudaMemcpyHostToDevice);
 
