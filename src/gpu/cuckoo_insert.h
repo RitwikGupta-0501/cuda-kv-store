@@ -170,7 +170,7 @@ __device__ inline InsertResult warp_insert_device(
 }
 
 // Kernel: process a batch of insertion keys
-__global__ void warp_insert_kernel(
+static __global__ void warp_insert_kernel(
     BucketTable* table,
     StashQueue* stash,
     const uint32_t* keys,

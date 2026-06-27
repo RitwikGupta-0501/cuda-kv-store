@@ -152,7 +152,7 @@ __device__ inline bool rehash_entry_device(
 
 // Kernel: Rehash all entries from old table into new table
 // Each warp processes one bucket from old table
-__global__ void rehash_table_kernel(
+static __global__ void rehash_table_kernel(
     const BucketTable* old_table,
     BucketTable* new_table,
     uint32_t* entries_rehashed) {
@@ -201,7 +201,7 @@ __global__ void rehash_table_kernel(
 
 // Kernel: Drain stash queue into new table with cuckoo eviction chains
 // Each warp cooperatively processes one stash entry (not one thread per entry)
-__global__ void drain_stash_kernel(
+static __global__ void drain_stash_kernel(
     BucketTable* new_table,
     StashQueue* stash,
     uint32_t* entries_drained) {
