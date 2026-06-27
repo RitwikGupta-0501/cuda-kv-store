@@ -93,7 +93,7 @@ static __global__ void warp_lookup_kernel(
     if (key_idx >= num_keys) return;
 
     uint32_t key = keys[key_idx];
-    uint8_t fp = compute_hash_pair(key, 0).fingerprint;
+    uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
 
     LookupResult result = warp_lookup_device(table, key, fp);
 
