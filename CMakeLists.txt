@@ -93,6 +93,16 @@ add_test(NAME WarpLookupTests COMMAND test_warp_lookup)
 # Integration Tests (Phase 3 onwards)
 # ============================================================================
 
+# Cuckoo insertion kernel unit tests (Phase 4)
+add_executable(test_cuckoo_insert
+    tests/unit/test_cuckoo_insert.cpp
+    src/gpu/cuckoo_insert.cu
+    src/gpu/xxhash3.cu
+    src/gpu/bucket_cuckoo.h
+)
+target_link_libraries(test_cuckoo_insert GTest::gtest_main CUDA::cudart)
+add_test(NAME CuckooInsertTests COMMAND test_cuckoo_insert)
+
 # Lookup correctness integration test (Phase 3)
 add_executable(test_lookup_correctness
     tests/integration/test_lookup_correctness.cpp
