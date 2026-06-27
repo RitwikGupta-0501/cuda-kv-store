@@ -211,7 +211,7 @@ __global__ void drain_stash_kernel(
     uint32_t lane_id = threadIdx.x % 32;
 
     // Read stash size (from old head before it was reset)
-    uint32_t stash_size = atomicAdd((uint32_t*)&stash->tail, 0);
+    uint32_t stash_size = atomicAdd((uint32_t*)&stash->head, 0);
     if (entry_idx >= stash_size) return;
 
     StashEntry entry = stash->entries[entry_idx];
