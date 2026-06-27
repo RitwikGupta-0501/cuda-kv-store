@@ -21,7 +21,7 @@ protected:
         stash_ = get_device_stash();
         
         // Clear table and stash
-        cudaMemset(table_->buckets, 0, table_->capacity * sizeof(Bucket));
+        cudaMemset(table_->buckets, 0, table_->num_buckets * sizeof(Bucket));
         cudaMemset(stash_, 0, sizeof(StashQueue));
     }
 
@@ -33,7 +33,7 @@ TEST_F(EvictionChainTest, ForceEvictionToStash) {
     uint32_t key_to_insert = 99999;
     uint32_t value_to_insert = 88888;
     
-    HashPair target_hash = compute_hash_pair(key_to_insert, table_->capacity - 1);
+    HashPair target_hash = compute_hash_pair(key_to_insert, table_->num_buckets - 1);
     
     // We want to fill both target_hash.b1 and target_hash.b2 completely.
     // That means any key trying to insert into b1 will evict something to b2, which evicts to b1, 

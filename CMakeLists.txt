@@ -84,6 +84,7 @@ add_executable(test_warp_lookup
     tests/unit/test_warp_lookup.cu
     src/gpu/warp_lookup.cu
     src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_warp_lookup GTest::gtest_main CUDA::cudart)
@@ -98,6 +99,7 @@ add_executable(test_cuckoo_insert
     tests/unit/test_cuckoo_insert.cu
     src/gpu/cuckoo_insert.cu
     src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_cuckoo_insert GTest::gtest_main CUDA::cudart)
@@ -106,6 +108,9 @@ add_test(NAME CuckooInsertTests COMMAND test_cuckoo_insert)
 # Eviction chain correctness tests (Phase 4 Extended)
 add_executable(test_eviction_chains
     tests/unit/test_eviction_chains.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_eviction_chains GTest::gtest_main CUDA::cudart)
@@ -115,7 +120,10 @@ add_test(NAME EvictionChainTests COMMAND test_eviction_chains)
 add_executable(test_rehash_kernel
     tests/unit/test_rehash_kernel.cu
     src/gpu/rehash_kernel.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/warp_lookup.cu
     src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_rehash_kernel GTest::gtest_main CUDA::cudart)
