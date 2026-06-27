@@ -139,6 +139,21 @@ add_executable(bench_hash_throughput
 )
 target_link_libraries(bench_hash_throughput CUDA::cudart)
 
+# Synthetic load test — CPU simulation (quick validation)
+add_executable(synthetic_load_test
+    benchmarks/synthetic_load_test.cu
+    src/gpu/xxhash3.cu
+    src/gpu/bucket_cuckoo.h
+)
+target_link_libraries(synthetic_load_test CUDA::cudart)
+
+# Synthetic load test — GPU version (real kernel execution)
+add_executable(gpu_synthetic_load_test
+    benchmarks/gpu_synthetic_load_test.cu
+    src/gpu/bucket_cuckoo.h
+)
+target_link_libraries(gpu_synthetic_load_test CUDA::cudart)
+
 # ============================================================================
 # Main Application (Phase 7+)
 # ============================================================================
