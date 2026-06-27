@@ -41,8 +41,13 @@ struct HashPair {
 };
 
 // Compute both buckets and fingerprint from a key
+// Uses appropriate hash function for device vs host context
 __device__ __host__ inline HashPair compute_hash_pair(uint32_t key, uint32_t bucket_mask) {
-    const uint32_t h = xxhash3_32_host(key);
+#ifdef __CUDA_ARCH__
+    const uint32_t h = xxhash3_32(key);  // Device code
+#else
+    const uint32_t h = xxhash3_32_host(key);  // Host code
+#endif
 
     HashPair result;
     result.b1 = h & bucket_mask;
