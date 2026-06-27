@@ -109,6 +109,7 @@ add_test(NAME CuckooInsertTests COMMAND test_cuckoo_insert)
 add_executable(test_eviction_chains
     tests/unit/test_eviction_chains.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/warp_lookup.cu
     src/gpu/xxhash3.cu
     src/gpu/arena_allocator.cu
     src/gpu/bucket_cuckoo.h

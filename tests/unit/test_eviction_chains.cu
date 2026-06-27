@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 #include "../../src/gpu/cuckoo_insert.h"
 #include "../../src/gpu/xxhash3.h"
+#include "../../src/gpu/warp_lookup.h"
 #include "../../src/gpu/bucket_cuckoo.h"
 
 namespace warpkv {
