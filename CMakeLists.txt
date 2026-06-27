@@ -103,6 +103,14 @@ add_executable(test_cuckoo_insert
 target_link_libraries(test_cuckoo_insert GTest::gtest_main CUDA::cudart)
 add_test(NAME CuckooInsertTests COMMAND test_cuckoo_insert)
 
+# Eviction chain correctness tests (Phase 4 Extended)
+add_executable(test_eviction_chains
+    tests/unit/test_eviction_chains.cpp
+    src/gpu/bucket_cuckoo.h
+)
+target_link_libraries(test_eviction_chains GTest::gtest_main CUDA::cudart)
+add_test(NAME EvictionChainTests COMMAND test_eviction_chains)
+
 # Rehashing kernel unit tests (Phase 5)
 add_executable(test_rehash_kernel
     tests/unit/test_rehash_kernel.cpp
