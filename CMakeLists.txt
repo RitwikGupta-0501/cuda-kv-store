@@ -160,12 +160,11 @@ target_link_libraries(gpu_synthetic_load_test CUDA::cudart)
 # Main Application (Phase 7+)
 # ============================================================================
 
-# Example usage (built after Python binding is ready)
-add_executable(warpkv_example
-    src/main.cpp
-    src/core/config.cpp
-)
-target_link_libraries(warpkv_example CUDA::cudart)
+# add_executable(warpkv_example
+#     src/main.cpp
+#     src/core/config.cpp
+# )
+# target_link_libraries(warpkv_example CUDA::cudart)
 
 # ============================================================================
 # Build Summary
