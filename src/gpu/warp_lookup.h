@@ -23,14 +23,14 @@ struct LookupResult {
 
 // Device-side lookup function (called by kernel)
 __device__ inline LookupResult warp_lookup_device(
-    const BucketTable* table,
+    BucketTable table,
     uint32_t key,
     uint8_t fingerprint) {
 
     // Compute both bucket addresses
-    HashPair hash_pair = compute_hash_pair(key, table->bucket_mask);
-    Bucket* bucket_b1 = &table->buckets[hash_pair.b1];
-    Bucket* bucket_b2 = &table->buckets[hash_pair.b2];
+    HashPair hash_pair = compute_hash_pair(key, table.bucket_mask);
+    Bucket* bucket_b1 = &table.buckets[hash_pair.b1];
+    Bucket* bucket_b2 = &table.buckets[hash_pair.b2];
 
     uint32_t lane_id = threadIdx.x % 32;
     uint32_t slot_id = lane_id;  // Each lane scans one slot in parallel
@@ -81,7 +81,7 @@ __device__ inline LookupResult warp_lookup_device(
 // Kernel: process a batch of lookup keys
 // Assumes one warp per key (32 threads per key)
 static __global__ void warp_lookup_kernel(
-    const BucketTable* table,
+    BucketTable table,
     const uint32_t* keys,
     uint32_t* values,
     uint32_t* found_flags,
@@ -114,7 +114,7 @@ struct LookupBatch {
 
 // Launch lookup kernel for a batch of keys
 void warp_lookup_batch(
-    const BucketTable* d_table,
+    BucketTable table,
     const LookupBatch& batch,
     cudaStream_t stream = nullptr);
 

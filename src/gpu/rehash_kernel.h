@@ -52,9 +52,9 @@ __device__ inline bool rehash_entry_device(
 
     while (hop_count < MAX_EVICTION_HOPS && !inserted) {
         // Recompute hash for new table (new bucket mask)
-        HashPair hash_pair = compute_hash_pair(current_key, new_table->bucket_mask);
-        Bucket* bucket_b1 = &new_table->buckets[hash_pair.b1];
-        Bucket* bucket_b2 = &new_table->buckets[hash_pair.b2];
+        HashPair hash_pair = compute_hash_pair(current_key, new_table.bucket_mask);
+        Bucket* bucket_b1 = &new_table.buckets[hash_pair.b1];
+        Bucket* bucket_b2 = &new_table.buckets[hash_pair.b2];
 
         // ========== Try bucket b1 ==========
         // Lanes 0-7 try their corresponding slots in parallel
@@ -153,16 +153,16 @@ __device__ inline bool rehash_entry_device(
 // Kernel: Rehash all entries from old table into new table
 // Each warp processes one bucket from old table
 static __global__ void rehash_table_kernel(
-    const BucketTable* old_table,
-    BucketTable* new_table,
+    const BucketTable old_table,
+    BucketTable new_table,
     uint32_t* entries_rehashed) {
 
     // Each warp processes one bucket from old table
     uint32_t bucket_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
 
-    if (bucket_idx >= old_table->num_buckets) return;
+    if (bucket_idx >= old_table.num_buckets) return;
 
-    Bucket* old_bucket = &old_table->buckets[bucket_idx];
+    Bucket* old_bucket = &old_table.buckets[bucket_idx];
     uint32_t lane_id = threadIdx.x % 32;
 
     // All lanes cooperatively scan this bucket's slots

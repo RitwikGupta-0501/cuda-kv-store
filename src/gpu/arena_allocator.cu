@@ -69,9 +69,6 @@ public:
 
         std::cout << "Table 0: " << table0_.num_buckets << " buckets (mask: 0x"
                   << std::hex << table0_.bucket_mask << std::dec << ")" << std::endl;
-        std::cout << "Table 1: " << table1_.num_buckets << " buckets (mask: 0x"
-                  << std::hex << table1_.bucket_mask << std::dec << ")" << std::endl;
-
         // Allocate stash queue in mapped pinned memory
         err = cudaMallocHost(&stash_queue_, sizeof(StashQueue));
         if (err != cudaSuccess) {

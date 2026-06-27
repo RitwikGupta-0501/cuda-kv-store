@@ -53,12 +53,11 @@ void execute_rehash(
     // Each warp processes one bucket
     uint32_t threads_per_block = 256;
     uint32_t warps_per_block = threads_per_block / 32;
-    uint32_t old_num_buckets = ctx.d_old_table->num_buckets;
-    uint32_t num_blocks = (old_num_buckets + warps_per_block - 1) / warps_per_block;
+    uint32_t num_blocks = (old_table.num_buckets + warps_per_block - 1) / warps_per_block;
 
     rehash_table_kernel<<<num_blocks, threads_per_block, 0, stream>>>(
-        ctx.d_old_table,
-        ctx.d_new_table,
+        old_table,
+        new_table,
         d_entries_rehashed
     );
 
@@ -76,7 +75,7 @@ void execute_rehash(
     uint32_t stash_blocks = (STASH_CAPACITY + stash_threads - 1) / stash_threads;
 
     drain_stash_kernel<<<stash_blocks, stash_threads, 0, stream>>>(
-        ctx.d_new_table,
+        new_table,
         ctx.d_stash,
         d_entries_drained
     );
@@ -120,7 +119,7 @@ void execute_rehash(
     if (out_stats) {
         out_stats->entries_copied = h_entries_rehashed;
         out_stats->entries_stashed = h_entries_drained;
-        out_stats->new_table_capacity = ctx.d_new_table->num_buckets;
+        out_stats->new_table_capacity = new_table.num_buckets;
         out_stats->status = REHASH_COMPLETE;
     }
 
