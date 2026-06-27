@@ -125,7 +125,7 @@ TEST_F(XXHash3Test, DecorelationB1NotB2) {
 
     for (int i = 0; i < num_keys; ++i) {
         uint32_t key = dist(rng);
-        HashPair pair = compute_hash_pair_host(key, bucket_mask);
+        HashPair pair = compute_hash_pair(key, bucket_mask);
 
         if (pair.b1 == pair.b2) {
             b1_equals_b2_count++;
@@ -150,7 +150,7 @@ TEST_F(XXHash3Test, FingerprintProperties) {
 
     for (int i = 0; i < num_keys; ++i) {
         uint32_t key = dist(rng);
-        HashPair pair = compute_hash_pair_host(key, 0xFFFFu);
+        HashPair pair = compute_hash_pair(key, 0xFFFFu);
         fp_count[pair.fingerprint]++;
     }
 
@@ -191,7 +191,6 @@ TEST_F(XXHash3Test, FingerprintFalsePositiveRate) {
     // Expected FP per 8-slot bucket: 8 * (1/256) = 3.1%
 
     const int num_tests = 100000;
-    const int slots_per_bucket = 8;
     int false_positives = 0;
 
     std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
@@ -199,11 +198,11 @@ TEST_F(XXHash3Test, FingerprintFalsePositiveRate) {
     for (int test = 0; test < num_tests; ++test) {
         // Generate a random slot key
         uint32_t slot_key = dist(rng);
-        HashPair slot_pair = compute_hash_pair_host(slot_key, 0xFFFFu);
+        HashPair slot_pair = compute_hash_pair(slot_key, 0xFFFFu);
 
         // Generate a different search key
         uint32_t search_key = slot_key ^ 0x12345678u;  // Guaranteed different
-        HashPair search_pair = compute_hash_pair_host(search_key, 0xFFFFu);
+        HashPair search_pair = compute_hash_pair(search_key, 0xFFFFu);
 
         // Check if fingerprints match (this would be a false positive in a real lookup)
         if (slot_pair.fingerprint == search_pair.fingerprint) {
@@ -220,7 +219,6 @@ TEST_F(XXHash3Test, FingerprintFalsePositiveRate) {
         << "Fingerprint collision rate is too high (expected ~" << expected_fps << ")";
 }
 
-}  // namespace
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
