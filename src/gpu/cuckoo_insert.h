@@ -192,7 +192,7 @@ static __global__ void warp_insert_kernel(
 
     uint32_t key = keys[key_idx];
     uint32_t value = values[key_idx];
-    uint8_t fp = compute_hash_pair(key, 0).fingerprint;
+    uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
 
     InsertResult result = warp_insert_device(table, stash, key, value, fp);
 
