@@ -109,13 +109,13 @@ TEST_F(CuckooInsertTest, StatusEnumValues) {
 // Test 5: StashQueue structure
 TEST_F(CuckooInsertTest, StashQueueStructure) {
     StashQueue stash;
-    stash.head.store(0, std::memory_order_release);
+    stash.head = 0;
     stash.tail = 0;
-    stash.needs_rehash.store(0, std::memory_order_release);
+    stash.needs_rehash = 0;
 
-    EXPECT_EQ(stash.head.load(), 0) << "Head should initialize to 0";
+    EXPECT_EQ(stash.head, 0) << "Head should initialize to 0";
     EXPECT_EQ(stash.tail, 0) << "Tail should initialize to 0";
-    EXPECT_EQ(stash.needs_rehash.load(), 0) << "needs_rehash should initialize to 0";
+    EXPECT_EQ(stash.needs_rehash, 0) << "needs_rehash should initialize to 0";
 
     // Verify capacity
     EXPECT_EQ(sizeof(stash.entries) / sizeof(StashEntry), 5120)
@@ -219,8 +219,6 @@ TEST_F(CuckooInsertTest, InsertResultStructure) {
     EXPECT_EQ(result.status, INSERT_SUCCESS) << "Status set correctly";
     EXPECT_EQ(result.slot_used, 3) << "Slot recorded correctly";
 }
-
-}  // namespace
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
