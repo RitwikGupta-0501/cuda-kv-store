@@ -65,6 +65,7 @@ add_test(NAME XXHash3Tests COMMAND test_xxhash3)
 # Bucket layout unit tests (Phase 2)
 add_executable(test_bucket_layout
     tests/unit/test_bucket_layout.cpp
+    src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_bucket_layout GTest::gtest_main CUDA::cudart)
 add_test(NAME BucketLayoutTests COMMAND test_bucket_layout)
@@ -72,6 +73,8 @@ add_test(NAME BucketLayoutTests COMMAND test_bucket_layout)
 # Arena allocator unit tests (Phase 2)
 add_executable(test_arena_allocator
     tests/unit/test_arena_allocator.cpp
+    src/gpu/arena_allocator.cu
+    src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_arena_allocator GTest::gtest_main CUDA::cudart)
 add_test(NAME ArenaAllocatorTests COMMAND test_arena_allocator)
