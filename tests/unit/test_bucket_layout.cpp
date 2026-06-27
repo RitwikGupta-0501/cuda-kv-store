@@ -32,8 +32,8 @@ TEST_F(BucketLayoutTest, BucketFieldOffsets) {
     Bucket b;
 
     // Verify field offsets (for memory layout verification)
-    EXPECT_EQ(offsetof(Bucket, keys), 0) << "keys should start at offset 0";
-    EXPECT_EQ(offsetof(Bucket, values), 32) << "values should start at offset 32";
+    EXPECT_EQ(offsetof(Bucket, keys), 0) << "keys array should be at offset 0";
+    EXPECT_EQ(offsetof(Bucket, values), 32) << "values array should be at offset 32";
     EXPECT_EQ(offsetof(Bucket, fingerprint), 64) << "fingerprint should start at offset 64";
     EXPECT_EQ(offsetof(Bucket, occupancy_mask), 72) << "occupancy_mask should start at offset 72";
     EXPECT_EQ(offsetof(Bucket, padding), 76) << "padding should start at offset 76";
@@ -157,12 +157,8 @@ TEST_F(BucketLayoutTest, BucketInitialization) {
 // Test 8: StashQueue structure size and capacity
 TEST_F(BucketLayoutTest, StashQueueStructure) {
     EXPECT_EQ(STASH_CAPACITY, 5120) << "Stash capacity should be 5120";
-
-    size_t expected_size = sizeof(std::atomic<uint32_t>) * 3 +  // head, tail, needs_rehash
-                           sizeof(StashEntry) * STASH_CAPACITY;
-
-    // Stash should be < 100 KB (verified by static_assert in header)
-    EXPECT_LT(sizeof(StashQueue), 100000) << "StashQueue size should be < 100 KB";
+    EXPECT_EQ(sizeof(StashQueue::entries) / sizeof(StashEntry), STASH_CAPACITY)
+        << "StashQueue should hold exactly STASH_CAPACITY entries";
 
     // Verify stash fits the formula: BACKPRESSURE_THRESHOLD + BATCH_SIZE
     EXPECT_GE(STASH_CAPACITY, BACKPRESSURE_THRESHOLD + BATCH_SIZE)
@@ -177,7 +173,6 @@ TEST_F(BucketLayoutTest, Constants) {
     EXPECT_EQ(STASH_CAPACITY, 5120) << "Stash capacity formula: 64 + 4096 + margin";
 }
 
-}  // namespace
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
