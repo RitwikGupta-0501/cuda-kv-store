@@ -20,7 +20,7 @@ protected:
         } catch (...) {}
         table_ = get_table0();
         // Clear table
-        cudaMemset(table_->buckets, 0, table_->capacity * sizeof(Bucket));
+        cudaMemset(table_->buckets, 0, table_->num_buckets * sizeof(Bucket));
     }
 
     BucketTable* table_;
@@ -30,7 +30,7 @@ TEST_F(WarpLookupTest, SingleKeyB1Hit) {
     uint32_t key = 12345;
     uint32_t value = 67890;
     
-    HashPair hash = compute_hash_pair(key, table_->capacity - 1);
+    HashPair hash = compute_hash_pair(key, table_->num_buckets - 1);
     
     // Manually construct bucket on host
     Bucket h_bucket;
@@ -64,7 +64,7 @@ TEST_F(WarpLookupTest, SingleKeyB2Hit) {
     uint32_t key = 98765;
     uint32_t value = 43210;
     
-    HashPair hash = compute_hash_pair(key, table_->capacity - 1);
+    HashPair hash = compute_hash_pair(key, table_->num_buckets - 1);
     
     Bucket h_bucket;
     bucket_init(&h_bucket);
@@ -115,8 +115,8 @@ TEST_F(WarpLookupTest, FingerprintFalsePositive) {
     uint32_t key = 22222;
     uint32_t different_key = 33333; // Hashes to same bucket but different key
     
-    HashPair hash_diff = compute_hash_pair(different_key, table_->capacity - 1);
-    HashPair hash_target = compute_hash_pair(key, table_->capacity - 1);
+    HashPair hash_diff = compute_hash_pair(different_key, table_->num_buckets - 1);
+    HashPair hash_target = compute_hash_pair(key, table_->num_buckets - 1);
     
     Bucket h_bucket;
     bucket_init(&h_bucket);

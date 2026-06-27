@@ -76,12 +76,11 @@ TEST_F(ArenaAllocatorTest, VRAMBudget) {
     size_t total_tables = arena_per_table * 2;
     size_t buffers_and_stash = 100 * 1024 * 1024;  // Conservative estimate
     size_t total = total_tables + buffers_and_stash;
+    EXPECT_LE(total, 2ULL * 1024 * 1024 * 1024)
+        << "Total allocation exceeds 2GB budget limit";
 
-    EXPECT_LE(total, 2 * 1024 * 1024 * 1024)
-        << "Total allocation should fit in 2 GB VRAM";
-
-    // Should leave > 300 MB headroom
-    size_t headroom = (2 * 1024 * 1024 * 1024) - total;
+    // Verify correct math for headroom
+    size_t headroom = (2ULL * 1024 * 1024 * 1024) - total;
     EXPECT_GT(headroom, 300 * 1024 * 1024)
         << "Should have at least 300 MB headroom";
 }
@@ -124,8 +123,6 @@ TEST_F(ArenaAllocatorTest, BucketInitialization) {
         EXPECT_EQ(b.fingerprint[slot], 0) << "FP slot " << slot << " should be zero";
     }
 }
-
-}  // namespace
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
