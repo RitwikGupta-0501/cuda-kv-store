@@ -80,7 +80,7 @@ __device__ inline LookupResult warp_lookup_device(
 
 // Kernel: process a batch of lookup keys
 // Assumes one warp per key (32 threads per key)
-__global__ void warp_lookup_kernel(
+static __global__ void warp_lookup_kernel(
     const BucketTable* table,
     const uint32_t* keys,
     uint32_t* values,
