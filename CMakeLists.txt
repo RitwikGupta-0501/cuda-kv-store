@@ -103,6 +103,16 @@ add_executable(test_cuckoo_insert
 target_link_libraries(test_cuckoo_insert GTest::gtest_main CUDA::cudart)
 add_test(NAME CuckooInsertTests COMMAND test_cuckoo_insert)
 
+# Rehashing kernel unit tests (Phase 5)
+add_executable(test_rehash_kernel
+    tests/unit/test_rehash_kernel.cpp
+    src/gpu/rehash_kernel.cu
+    src/gpu/xxhash3.cu
+    src/gpu/bucket_cuckoo.h
+)
+target_link_libraries(test_rehash_kernel GTest::gtest_main CUDA::cudart)
+add_test(NAME RehashKernelTests COMMAND test_rehash_kernel)
+
 # Lookup correctness integration test (Phase 3)
 add_executable(test_lookup_correctness
     tests/integration/test_lookup_correctness.cpp
