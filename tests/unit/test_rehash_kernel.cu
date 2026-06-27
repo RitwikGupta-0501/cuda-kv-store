@@ -51,7 +51,7 @@ TEST_F(RehashKernelTest, RealRehashExecution) {
     batch.h_hops = nullptr;
     batch.num_keys = num_keys;
 
-    warp_insert_batch(old_table_, stash_, batch);
+    warp_insert_batch(*old_table_, stash_, batch);
 
     // 2. Put a couple of entries manually in the stash to test stash drain
     StashQueue h_stash;
@@ -96,7 +96,7 @@ TEST_F(RehashKernelTest, RealRehashExecution) {
     l_batch.h_found = found_flags.data();
     l_batch.num_keys = verify_keys.size();
 
-    warp_lookup_batch(new_table_, l_batch);
+    warp_lookup_batch(*new_table_, l_batch);
 
     uint32_t total_found = 0;
     for (size_t i = 0; i < verify_keys.size(); ++i) {

@@ -32,7 +32,7 @@ struct InsertResult {
 // Device-side insertion function with cuckoo eviction chains
 // Implements full cuckoo hashing: try b1, try b2, then evict up to MAX_EVICTION_HOPS
 __device__ inline InsertResult warp_insert_device(
-    BucketTable* table,
+    BucketTable table,
     StashQueue* stash,
     uint32_t key,
     uint32_t value,
@@ -49,9 +49,9 @@ __device__ inline InsertResult warp_insert_device(
 
     while (hop_count < MAX_EVICTION_HOPS) {
         // Compute buckets for the current key
-        HashPair hash_pair = compute_hash_pair(current_key, table->bucket_mask);
-        Bucket* bucket_b1 = &table->buckets[hash_pair.b1];
-        Bucket* bucket_b2 = &table->buckets[hash_pair.b2];
+        HashPair hash_pair = compute_hash_pair(current_key, table.bucket_mask);
+        Bucket* bucket_b1 = &table.buckets[hash_pair.b1];
+        Bucket* bucket_b2 = &table.buckets[hash_pair.b2];
 
         // ========== Try to insert in bucket b1 ==========
         // Lanes 0-7 try their corresponding slots in parallel
@@ -177,7 +177,7 @@ __device__ inline InsertResult warp_insert_device(
 
 // Kernel: process a batch of insertion keys
 static __global__ void warp_insert_kernel(
-    BucketTable* table,
+    BucketTable table,
     StashQueue* stash,
     const uint32_t* keys,
     const uint32_t* values,
@@ -213,7 +213,7 @@ struct InsertBatch {
 
 // Launch insertion kernel for a batch of keys
 void warp_insert_batch(
-    BucketTable* d_table,
+    BucketTable table,
     StashQueue* d_stash,
     const InsertBatch& batch,
     cudaStream_t stream = nullptr);
