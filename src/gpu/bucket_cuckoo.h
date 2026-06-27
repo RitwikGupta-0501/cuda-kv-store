@@ -25,10 +25,10 @@ struct Bucket {
 
     // Padding: 52 bytes (to reach 128 bytes total)
     uint8_t padding[52];
-
-    // Verify struct is exactly 128 bytes
-    static_assert(sizeof(Bucket) == 128, "Bucket must be exactly 128 bytes");
 };
+
+// Verify struct is exactly 128 bytes
+static_assert(sizeof(Bucket) == 128, "Bucket must be exactly 128 bytes");
 
 // ============================================================================
 // Bucket Table Structure
@@ -72,10 +72,10 @@ struct StashQueue {
     // Stash entries: 5120 slots = BACKPRESSURE_THRESHOLD + BATCH_SIZE
     // = 64 + 4096 = 4160 minimum, 5120 for safety margin
     StashEntry entries[5120];
-
-    // Verify size is reasonable
-    static_assert(sizeof(StashQueue) < 100000, "StashQueue should be < 100KB");
 };
+
+// Verify size is reasonable
+static_assert(sizeof(StashQueue) < 100000, "StashQueue should be < 100KB");
 
 // ============================================================================
 // Bucket Utility Functions (Host-side)
