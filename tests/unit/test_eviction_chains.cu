@@ -134,7 +134,6 @@ TEST_F(EvictionChainTest, BucketAlternation) {
 
 // Test 5: Fingerprint invariance across evictions
 TEST_F(EvictionChainTest, FingerprintInvariance) {
-    uint32_t key = 12345;
     uint8_t original_fp = 0x42;
 
     // FP should never change during evictions
@@ -187,6 +186,13 @@ TEST_F(EvictionChainTest, StashCapacityForMaxHops) {
     EXPECT_GT(total_possible_stashed, MAX_EVICTION_HOPS);
 }
 
+// Host-side mock of atomicCAS for semantics testing
+uint32_t mock_atomicCAS(uint32_t* addr, uint32_t compare, uint32_t val) {
+    uint32_t old = *addr;
+    if (old == compare) *addr = val;
+    return old;
+}
+
 // Test 8: atomicCAS simulation (winner/loser semantics)
 TEST_F(EvictionChainTest, AtomicCASSemantics) {
     // Simulate two warps racing on same victim slot
@@ -195,14 +201,14 @@ TEST_F(EvictionChainTest, AtomicCASSemantics) {
     uint32_t new_key_warp1 = 88888;
 
     // Warp 0 tries first
-    uint32_t old_key = atomicCAS(&bucket_b1_.keys[0], key_slot, new_key_warp0);
+    uint32_t old_key = mock_atomicCAS(&bucket_b1_.keys[0], key_slot, new_key_warp0);
     EXPECT_EQ(old_key, 0) << "First CAS against empty slot succeeds (old value was 0 from init)";
 
     // Verify Warp 0's key is in slot
     EXPECT_EQ(bucket_b1_.keys[0], new_key_warp0);
 
     // Warp 1 tries now (should fail)
-    old_key = atomicCAS(&bucket_b1_.keys[0], key_slot, new_key_warp1);
+    old_key = mock_atomicCAS(&bucket_b1_.keys[0], key_slot, new_key_warp1);
     EXPECT_NE(old_key, key_slot) << "Second CAS fails (slot now holds warp0's key)";
 
     // Warp 0's key stays
@@ -237,8 +243,6 @@ TEST_F(EvictionChainTest, InsertResultAfterEviction) {
     EXPECT_NE(result.status, INSERT_SUCCESS);
     EXPECT_NE(result.status, INSERT_FAILED);
 }
-
-}  // namespace
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);

@@ -105,7 +105,7 @@ add_test(NAME CuckooInsertTests COMMAND test_cuckoo_insert)
 
 # Eviction chain correctness tests (Phase 4 Extended)
 add_executable(test_eviction_chains
-    tests/unit/test_eviction_chains.cpp
+    tests/unit/test_eviction_chains.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_eviction_chains GTest::gtest_main CUDA::cudart)
