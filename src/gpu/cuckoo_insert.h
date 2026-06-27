@@ -26,6 +26,7 @@ enum InsertStatus : uint32_t {
 struct InsertResult {
     InsertStatus status;
     uint32_t slot_used;    // Slot index in final bucket (0-7 if in bucket, ignored if stashed)
+    uint32_t hops;         // Number of eviction hops required
 };
 
 // Device-side insertion function with cuckoo eviction chains
@@ -38,7 +39,7 @@ __device__ inline InsertResult warp_insert_device(
     uint8_t fingerprint) {
 
     uint32_t lane_id = threadIdx.x % 32;
-    InsertResult result = {INSERT_FAILED, 0};
+    InsertResult result = {INSERT_FAILED, 0, 0};
 
     // Eviction loop: current_key/value/fp get evicted and re-inserted up to MAX_EVICTION_HOPS times
     uint32_t current_key = key;
@@ -66,6 +67,7 @@ __device__ inline InsertResult warp_insert_device(
                     bucket_b1->fingerprint[slot] = current_fp;
                     result.status = INSERT_SUCCESS;
                     result.slot_used = slot;
+                    result.hops = hop_count;
                 }
             }
         }
@@ -90,6 +92,7 @@ __device__ inline InsertResult warp_insert_device(
                     bucket_b2->fingerprint[slot] = current_fp;
                     result.status = INSERT_SUCCESS;
                     result.slot_used = slot;
+                    result.hops = hop_count;
                 }
             }
         }
@@ -156,15 +159,18 @@ __device__ inline InsertResult warp_insert_device(
             stash->entries[head].key = current_key;
             stash->entries[head].value = current_value;
             result.status = INSERT_STASHED;
+            result.hops = hop_count;
         } else {
             // Stash overflow: set needs_rehash flag
             atomicExch((uint32_t*)&stash->needs_rehash, 1u);
             result.status = INSERT_FAILED;
+            result.hops = hop_count;
         }
     }
 
-    // Broadcast final status to all lanes
+    // Broadcast final status and hops to all lanes
     result.status = (InsertStatus)__shfl_sync(0xFFFFFFFFu, (uint32_t)result.status, 0);
+    result.hops = __shfl_sync(0xFFFFFFFFu, result.hops, 0);
 
     return result;
 }
@@ -176,6 +182,7 @@ static __global__ void warp_insert_kernel(
     const uint32_t* keys,
     const uint32_t* values,
     InsertStatus* statuses,
+    uint32_t* hops,
     uint32_t num_keys) {
 
     // Each warp processes one key
@@ -192,14 +199,15 @@ static __global__ void warp_insert_kernel(
     // Lane 0 writes result
     if ((threadIdx.x % 32) == 0) {
         statuses[key_idx] = result.status;
+        if (hops) hops[key_idx] = result.hops;
     }
 }
 
-// Host-side wrapper for insertion batches
 struct InsertBatch {
     uint32_t* h_keys;      // Host input: keys
     uint32_t* h_values;    // Host input: values
     InsertStatus* h_statuses;  // Host output: insertion statuses
+    uint32_t* h_hops;      // Host output: hops required (can be nullptr if not needed)
     uint32_t num_keys;
 };
 
