@@ -49,6 +49,7 @@ TEST_F(BucketLayoutTest, OccupancyMaskBitOps) {
 
     // Test set_occupied for each slot
     for (int slot = 0; slot < 8; ++slot) {
+        bucket_init(&b);
         EXPECT_FALSE(bucket_is_occupied(&b, slot))
             << "Slot " << slot << " should not be occupied initially";
 
@@ -64,6 +65,10 @@ TEST_F(BucketLayoutTest, OccupancyMaskBitOps) {
     }
 
     // Test clear_occupied
+    bucket_init(&b);
+    for (int slot = 0; slot < 8; ++slot) {
+        bucket_set_occupied(&b, slot);
+    }
     for (int slot = 0; slot < 8; ++slot) {
         bucket_clear_occupied(&b, slot);
 
