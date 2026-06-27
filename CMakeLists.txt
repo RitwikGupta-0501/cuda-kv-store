@@ -1,34 +1,132 @@
 cmake_minimum_required(VERSION 3.18)
-project(gpu-kvstore LANGUAGES CXX CUDA)
+project(warpkv LANGUAGES CXX CUDA)
+
+# ============================================================================
+# WarpKV v2.0.2 — Production Build Configuration
+# ============================================================================
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
+# CUDA Architecture: CC 5.0 (Maxwell, MX130 target)
+set(CMAKE_CUDA_ARCHITECTURES 50)
+
+# Find CUDA Toolkit
 find_package(CUDAToolkit REQUIRED)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O3")
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O3")
+# Compiler flags
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -O3 -march=native")
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O3 --expt-extended-lambda")
 
+# Include directories
 include_directories(${CMAKE_SOURCE_DIR}/src)
+include_directories(${CMAKE_SOURCE_DIR}/include)
 
-# Hello CUDA test
-add_executable(hello_cuda
-    src/gpu/hello_cuda.cu
+# ============================================================================
+# Google Test Framework (for unit tests)
+# ============================================================================
+enable_testing()
+find_package(GTest QUIET)
+
+if(NOT GTest_FOUND)
+    message(STATUS "GTest not found, downloading...")
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        URL https://github.com/google/googletest/archive/refs/tags/v1.13.0.tar.gz
+    )
+    FetchContent_MakeAvailable(googletest)
+endif()
+
+# ============================================================================
+# Phase 0: Foundation Targets
+# ============================================================================
+
+# Hardware validation utility (Phase 0)
+add_executable(hardware_validation
+    src/core/hardware_validation.cpp
 )
-target_link_libraries(hello_cuda CUDA::cudart)
+target_link_libraries(hardware_validation CUDA::cudart)
 
-# Hash function tests
-add_executable(test_hash
-    tests/test_hash.cpp
+# ============================================================================
+# Unit Tests (Phase 0 onwards)
+# ============================================================================
+
+# Hash function unit tests (Phase 1)
+add_executable(test_xxhash3
+    tests/unit/test_xxhash3.cpp
 )
-target_link_libraries(test_hash CUDA::cudart)
+target_link_libraries(test_xxhash3 GTest::gtest_main CUDA::cudart)
+add_test(NAME XXHash3Tests COMMAND test_xxhash3)
 
-# Main executable
-add_executable(gpu-kvstore
+# Bucket layout unit tests (Phase 2)
+add_executable(test_bucket_layout
+    tests/unit/test_bucket_layout.cpp
+)
+target_link_libraries(test_bucket_layout GTest::gtest_main CUDA::cudart)
+add_test(NAME BucketLayoutTests COMMAND test_bucket_layout)
+
+# Arena allocator unit tests (Phase 2)
+add_executable(test_arena_allocator
+    tests/unit/test_arena_allocator.cpp
+)
+target_link_libraries(test_arena_allocator GTest::gtest_main CUDA::cudart)
+add_test(NAME ArenaAllocatorTests COMMAND test_arena_allocator)
+
+# Warp lookup kernel unit tests (Phase 3)
+add_executable(test_warp_lookup
+    tests/unit/test_warp_lookup.cpp
+)
+target_link_libraries(test_warp_lookup GTest::gtest_main CUDA::cudart)
+add_test(NAME WarpLookupTests COMMAND test_warp_lookup)
+
+# ============================================================================
+# Integration Tests (Phase 3 onwards)
+# ============================================================================
+
+# Lookup correctness integration test (Phase 3)
+add_executable(test_lookup_correctness
+    tests/integration/test_lookup_correctness.cpp
+)
+target_link_libraries(test_lookup_correctness GTest::gtest_main CUDA::cudart)
+add_test(NAME LookupCorrectnessTests COMMAND test_lookup_correctness)
+
+# ============================================================================
+# Benchmarks
+# ============================================================================
+
+# Hash throughput benchmark (Phase 1)
+add_executable(bench_hash_throughput
+    benchmarks/hash_throughput.cu
+)
+target_link_libraries(bench_hash_throughput CUDA::cudart)
+
+# ============================================================================
+# Main Application (Phase 7+)
+# ============================================================================
+
+# Example usage (built after Python binding is ready)
+add_executable(warpkv_example
     src/main.cpp
     src/core/config.cpp
-    src/core/cuckoo.cpp
 )
-target_link_libraries(gpu-kvstore CUDA::cudart)
+target_link_libraries(warpkv_example CUDA::cudart)
+
+# ============================================================================
+# Build Summary
+# ============================================================================
+message(STATUS "WarpKV v2.0.2 Build Configuration")
+message(STATUS "  CUDA Architecture: CC 5.0 (Maxwell)")
+message(STATUS "  C++ Standard: C++17")
+message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
+message(STATUS "  Unit Tests: ENABLED")
+message(STATUS "")
+message(STATUS "Build targets:")
+message(STATUS "  cmake --build . --target hardware_validation  # Phase 0")
+message(STATUS "  cmake --build . --target test_xxhash3         # Phase 1")
+message(STATUS "  cmake --build . --target test_bucket_layout   # Phase 2")
+message(STATUS "  cmake --build . --target test_warp_lookup     # Phase 3")
+message(STATUS "  ctest                                         # Run all tests")
+message(STATUS "")
