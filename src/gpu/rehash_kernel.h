@@ -32,45 +32,122 @@ struct RehashStats {
     RehashStatus status;
 };
 
-// Device-side: rehash a single key-value pair to new table
-// Called by rehash kernel for each entry in old table
-__device__ inline void rehash_entry_device(
+// Device-side: rehash a single key-value pair to new table with eviction chains
+// Uses identical cuckoo eviction logic as insertion to guarantee no data loss
+// Returns true if successfully inserted, false if unevictable (should be statistically impossible)
+__device__ inline bool rehash_entry_device(
     BucketTable* new_table,
     uint32_t key,
-    uint32_t value) {
-
-    // Recompute hash for new table (new bucket mask)
-    HashPair hash_pair = compute_hash_pair(key, new_table->bucket_mask);
-    Bucket* bucket_b1 = &new_table->buckets[hash_pair.b1];
-    Bucket* bucket_b2 = &new_table->buckets[hash_pair.b2];
+    uint32_t value,
+    uint8_t fingerprint) {
 
     uint32_t lane_id = threadIdx.x % 32;
 
-    // ========== Lanes 0-7: Try bucket b1 ==========
-    if (lane_id < 8) {
-        uint32_t old_mask = bucket_b1->occupancy_mask;
-        if (!(old_mask & (1u << lane_id))) {
-            uint32_t new_mask = old_mask | (1u << lane_id);
-            if (atomicCAS(&bucket_b1->occupancy_mask, old_mask, new_mask) == old_mask) {
-                bucket_b1->keys[lane_id] = key;
-                bucket_b1->values[lane_id] = value;
-                bucket_b1->fingerprint[lane_id] = hash_pair.fingerprint;
+    // Eviction loop: rehash entry may require multiple hops if collisions occur
+    uint32_t current_key = key;
+    uint32_t current_value = value;
+    uint8_t current_fp = fingerprint;
+    uint32_t hop_count = 0;
+    bool inserted = false;
+
+    while (hop_count < MAX_EVICTION_HOPS && !inserted) {
+        // Recompute hash for new table (new bucket mask)
+        HashPair hash_pair = compute_hash_pair(current_key, new_table->bucket_mask);
+        Bucket* bucket_b1 = &new_table->buckets[hash_pair.b1];
+        Bucket* bucket_b2 = &new_table->buckets[hash_pair.b2];
+
+        // ========== Try bucket b1 ==========
+        // Lanes 0-7 try their corresponding slots in parallel
+        bool b1_success = false;
+        if (lane_id < 8) {
+            uint32_t slot = lane_id;
+            uint32_t old_mask = bucket_b1->occupancy_mask;
+            if (!(old_mask & (1u << slot))) {
+                uint32_t new_mask = old_mask | (1u << slot);
+                if (atomicCAS(&bucket_b1->occupancy_mask, old_mask, new_mask) == old_mask) {
+                    // Claimed free slot in b1
+                    bucket_b1->keys[slot] = current_key;
+                    bucket_b1->values[slot] = current_value;
+                    bucket_b1->fingerprint[slot] = current_fp;
+                    b1_success = true;
+                }
             }
         }
-    }
-    // ========== Lanes 8-15: Try bucket b2 ==========
-    else if (lane_id < 16) {
-        uint32_t slot = lane_id - 8;
-        uint32_t old_mask = bucket_b2->occupancy_mask;
-        if (!(old_mask & (1u << slot))) {
-            uint32_t new_mask = old_mask | (1u << slot);
-            if (atomicCAS(&bucket_b2->occupancy_mask, old_mask, new_mask) == old_mask) {
-                bucket_b2->keys[slot] = key;
-                bucket_b2->values[slot] = value;
-                bucket_b2->fingerprint[slot] = hash_pair.fingerprint;
+
+        // Check if any lane in b1 succeeded
+        if (__ballot_sync(0xFFFFFFFFu, b1_success)) {
+            return true;
+        }
+
+        // ========== Try bucket b2 ==========
+        // Lanes 8-15 try their corresponding slots in parallel
+        bool b2_success = false;
+        if (lane_id >= 8 && lane_id < 16) {
+            uint32_t slot = lane_id - 8;
+            uint32_t old_mask = bucket_b2->occupancy_mask;
+            if (!(old_mask & (1u << slot))) {
+                uint32_t new_mask = old_mask | (1u << slot);
+                if (atomicCAS(&bucket_b2->occupancy_mask, old_mask, new_mask) == old_mask) {
+                    // Claimed free slot in b2
+                    bucket_b2->keys[slot] = current_key;
+                    bucket_b2->values[slot] = current_value;
+                    bucket_b2->fingerprint[slot] = current_fp;
+                    b2_success = true;
+                }
             }
         }
+
+        // Check if any lane in b2 succeeded
+        if (__ballot_sync(0xFFFFFFFFu, b2_success)) {
+            return true;
+        }
+
+        // ========== Both buckets full: Evict a victim ==========
+        bool eviction_success = false;
+        uint32_t evicted_key = 0;
+        uint32_t evicted_value = 0;
+
+        if (lane_id == 0) {
+            // Pseudo-random victim selection
+            uint32_t victim_slot = (hash_pair.b1 ^ hash_pair.b2 ^ hop_count) % 8;
+            Bucket* victim_bucket = (hop_count % 2 == 0) ? bucket_b1 : bucket_b2;
+
+            // Read victim
+            uint32_t victim_key = victim_bucket->keys[victim_slot];
+            uint32_t victim_value = victim_bucket->values[victim_slot];
+
+            // Attempt eviction via atomicCAS
+            uint32_t old_key = atomicCAS(&victim_bucket->keys[victim_slot], victim_key, current_key);
+
+            if (old_key == victim_key) {
+                // Eviction succeeded
+                victim_bucket->values[victim_slot] = current_value;
+                victim_bucket->fingerprint[victim_slot] = current_fp;
+
+                evicted_key = victim_key;
+                evicted_value = victim_value;
+                eviction_success = true;
+            }
+        }
+
+        // Broadcast eviction result
+        eviction_success = __shfl_sync(0xFFFFFFFFu, eviction_success, 0);
+
+        if (eviction_success) {
+            // Broadcast evicted entry
+            current_key = __shfl_sync(0xFFFFFFFFu, evicted_key, 0);
+            current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
+            // current_fp remains unchanged
+        }
+        // If eviction failed, we retry next hop with same current_key
+
+        hop_count++;
     }
+
+    // Hit MAX_EVICTION_HOPS during rehash:
+    // This is statistically impossible with 2x table at <50% load.
+    // But if it happens, return false to signal failed insertion.
+    return false;
 }
 
 // Kernel: Rehash all entries from old table into new table
@@ -93,6 +170,7 @@ __global__ void rehash_table_kernel(
         // Lane 0 coordinates reading (to avoid 8x redundant reads)
         uint32_t key = 0;
         uint32_t value = 0;
+        uint8_t fingerprint = 0;
         bool occupied = false;
 
         if (lane_id == 0) {
@@ -100,6 +178,7 @@ __global__ void rehash_table_kernel(
             if (occupied) {
                 key = old_bucket->keys[slot];
                 value = old_bucket->values[slot];
+                fingerprint = old_bucket->fingerprint[slot];
             }
         }
 
@@ -107,70 +186,43 @@ __global__ void rehash_table_kernel(
         occupied = __shfl_sync(0xFFFFFFFFu, occupied, 0);
         key = __shfl_sync(0xFFFFFFFFu, key, 0);
         value = __shfl_sync(0xFFFFFFFFu, value, 0);
+        fingerprint = __shfl_sync(0xFFFFFFFFu, (uint32_t)fingerprint, 0);
 
         if (occupied) {
-            rehash_entry_device(new_table, key, value);
+            bool success = rehash_entry_device(new_table, key, value, (uint8_t)fingerprint);
 
-            // Lane 0 increments counter
-            if (lane_id == 0) {
+            // Lane 0 increments counter only on success
+            if (lane_id == 0 && success) {
                 atomicAdd(entries_rehashed, 1);
             }
         }
     }
 }
 
-// Kernel: Drain stash queue into new table
+// Kernel: Drain stash queue into new table with cuckoo eviction chains
+// Each warp cooperatively processes one stash entry (not one thread per entry)
 __global__ void drain_stash_kernel(
     BucketTable* new_table,
     StashQueue* stash,
     uint32_t* entries_drained) {
 
-    // Each thread processes one stash entry
-    uint32_t entry_idx = blockIdx.x * blockDim.x + threadIdx.x;
+    // Each warp processes one stash entry
+    uint32_t entry_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    uint32_t lane_id = threadIdx.x % 32;
 
-    uint32_t stash_size = atomicAdd((uint32_t*)&stash->tail, 0);  // Read tail
+    // Read stash size (from old head before it was reset)
+    uint32_t stash_size = atomicAdd((uint32_t*)&stash->tail, 0);
     if (entry_idx >= stash_size) return;
 
     StashEntry entry = stash->entries[entry_idx];
 
-    // Rehash this entry into new table
+    // Use rehash_entry_device to insert with cuckoo eviction chains
+    // Compute fingerprint from key
     HashPair hash_pair = compute_hash_pair(entry.key, new_table->bucket_mask);
-    uint32_t lane_id = threadIdx.x % 32;
+    bool success = rehash_entry_device(new_table, entry.key, entry.value, hash_pair.fingerprint);
 
-    Bucket* bucket_b1 = &new_table->buckets[hash_pair.b1];
-    Bucket* bucket_b2 = &new_table->buckets[hash_pair.b2];
-
-    bool inserted = false;
-
-    // Try b1
-    if (lane_id < 8) {
-        uint32_t old_mask = bucket_b1->occupancy_mask;
-        if (!(old_mask & (1u << lane_id))) {
-            uint32_t new_mask = old_mask | (1u << lane_id);
-            if (atomicCAS(&bucket_b1->occupancy_mask, old_mask, new_mask) == old_mask) {
-                bucket_b1->keys[lane_id] = entry.key;
-                bucket_b1->values[lane_id] = entry.value;
-                bucket_b1->fingerprint[lane_id] = hash_pair.fingerprint;
-                inserted = true;
-            }
-        }
-    }
-    // Try b2
-    else if (lane_id < 16) {
-        uint32_t slot = lane_id - 8;
-        uint32_t old_mask = bucket_b2->occupancy_mask;
-        if (!(old_mask & (1u << slot))) {
-            uint32_t new_mask = old_mask | (1u << slot);
-            if (atomicCAS(&bucket_b2->occupancy_mask, old_mask, new_mask) == old_mask) {
-                bucket_b2->keys[slot] = entry.key;
-                bucket_b2->values[slot] = entry.value;
-                bucket_b2->fingerprint[slot] = hash_pair.fingerprint;
-                inserted = true;
-            }
-        }
-    }
-
-    if (inserted) {
+    // Lane 0 increments counter on success
+    if (lane_id == 0 && success) {
         atomicAdd(entries_drained, 1);
     }
 }

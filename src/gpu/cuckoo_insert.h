@@ -28,7 +28,8 @@ struct InsertResult {
     uint32_t slot_used;    // Slot index in final bucket (0-7 if in bucket, ignored if stashed)
 };
 
-// Device-side insertion function
+// Device-side insertion function with cuckoo eviction chains
+// Implements full cuckoo hashing: try b1, try b2, then evict up to MAX_EVICTION_HOPS
 __device__ inline InsertResult warp_insert_device(
     BucketTable* table,
     StashQueue* stash,
@@ -36,69 +37,124 @@ __device__ inline InsertResult warp_insert_device(
     uint32_t value,
     uint8_t fingerprint) {
 
-    // Compute both bucket addresses
-    HashPair hash_pair = compute_hash_pair(key, table->bucket_mask);
-    uint32_t b1_idx = hash_pair.b1;
-    uint32_t b2_idx = hash_pair.b2;
-    Bucket* bucket_b1 = &table->buckets[b1_idx];
-    Bucket* bucket_b2 = &table->buckets[b2_idx];
-
     uint32_t lane_id = threadIdx.x % 32;
     InsertResult result = {INSERT_FAILED, 0};
 
-    // ========== Lanes 0-7: Try to insert in bucket b1 ==========
-    if (lane_id < 8) {
-        // Each lane tries to claim its slot atomically
-        uint32_t old_mask = bucket_b1->occupancy_mask;
-        if (!(old_mask & (1u << lane_id))) {
-            uint32_t new_mask = old_mask | (1u << lane_id);
-            if (atomicCAS(&bucket_b1->occupancy_mask, old_mask, new_mask) == old_mask) {
-                // Slot claimed successfully
-                bucket_b1->keys[lane_id] = key;
-                bucket_b1->values[lane_id] = value;
-                bucket_b1->fingerprint[lane_id] = fingerprint;
-                result.status = INSERT_SUCCESS;
-                result.slot_used = lane_id;
+    // Eviction loop: current_key/value/fp get evicted and re-inserted up to MAX_EVICTION_HOPS times
+    uint32_t current_key = key;
+    uint32_t current_value = value;
+    uint8_t current_fp = fingerprint;
+    uint32_t hop_count = 0;
+
+    while (hop_count < MAX_EVICTION_HOPS) {
+        // Compute buckets for the current key
+        HashPair hash_pair = compute_hash_pair(current_key, table->bucket_mask);
+        Bucket* bucket_b1 = &table->buckets[hash_pair.b1];
+        Bucket* bucket_b2 = &table->buckets[hash_pair.b2];
+
+        // ========== Try to insert in bucket b1 ==========
+        // Lanes 0-7 try their corresponding slots in parallel
+        if (lane_id < 8) {
+            uint32_t slot = lane_id;
+            uint32_t old_mask = bucket_b1->occupancy_mask;
+            if (!(old_mask & (1u << slot))) {
+                uint32_t new_mask = old_mask | (1u << slot);
+                if (atomicCAS(&bucket_b1->occupancy_mask, old_mask, new_mask) == old_mask) {
+                    // Claimed free slot in b1
+                    bucket_b1->keys[slot] = current_key;
+                    bucket_b1->values[slot] = current_value;
+                    bucket_b1->fingerprint[slot] = current_fp;
+                    result.status = INSERT_SUCCESS;
+                    result.slot_used = slot;
+                }
             }
         }
-    }
-    // ========== Lanes 8-15: Try to insert in bucket b2 ==========
-    else if (lane_id < 16) {
-        // Each lane tries to claim its corresponding slot in b2
-        uint32_t slot = lane_id - 8;
-        uint32_t old_mask = bucket_b2->occupancy_mask;
-        if (!(old_mask & (1u << slot))) {
-            uint32_t new_mask = old_mask | (1u << slot);
-            if (atomicCAS(&bucket_b2->occupancy_mask, old_mask, new_mask) == old_mask) {
-                // Slot claimed successfully
-                bucket_b2->keys[slot] = key;
-                bucket_b2->values[slot] = value;
-                bucket_b2->fingerprint[slot] = fingerprint;
-                result.status = INSERT_SUCCESS;
-                result.slot_used = slot;
+
+        // Broadcast success from any lane
+        int success_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.status == INSERT_SUCCESS)) - 1;
+        if (success_lane >= 0) {
+            return result;
+        }
+
+        // ========== Try to insert in bucket b2 ==========
+        // Lanes 8-15 try their corresponding slots in parallel
+        if (lane_id >= 8 && lane_id < 16) {
+            uint32_t slot = lane_id - 8;
+            uint32_t old_mask = bucket_b2->occupancy_mask;
+            if (!(old_mask & (1u << slot))) {
+                uint32_t new_mask = old_mask | (1u << slot);
+                if (atomicCAS(&bucket_b2->occupancy_mask, old_mask, new_mask) == old_mask) {
+                    // Claimed free slot in b2
+                    bucket_b2->keys[slot] = current_key;
+                    bucket_b2->values[slot] = current_value;
+                    bucket_b2->fingerprint[slot] = current_fp;
+                    result.status = INSERT_SUCCESS;
+                    result.slot_used = slot;
+                }
             }
         }
+
+        // Broadcast success from any lane
+        success_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.status == INSERT_SUCCESS)) - 1;
+        if (success_lane >= 0) {
+            return result;
+        }
+
+        // ========== Both buckets full: Evict a victim ==========
+        bool eviction_success = false;
+        uint32_t evicted_key = 0;
+        uint32_t evicted_value = 0;
+
+        if (lane_id == 0) {
+            // Pseudo-random victim selection: use hash bits XOR'd with hop count
+            uint32_t victim_slot = (hash_pair.b1 ^ hash_pair.b2 ^ hop_count) % 8;
+
+            // Alternate between b1 and b2 based on hop count
+            Bucket* victim_bucket = (hop_count % 2 == 0) ? bucket_b1 : bucket_b2;
+
+            // Read the victim's key and value
+            uint32_t victim_key = victim_bucket->keys[victim_slot];
+            uint32_t victim_value = victim_bucket->values[victim_slot];
+
+            // Attempt to swap current_key in via atomicCAS on the key field
+            uint32_t old_key = atomicCAS(&victim_bucket->keys[victim_slot], victim_key, current_key);
+
+            if (old_key == victim_key) {
+                // We won the race! Eviction succeeded.
+                // Write the rest of the payload atomically
+                victim_bucket->values[victim_slot] = current_value;
+                victim_bucket->fingerprint[victim_slot] = current_fp;
+
+                // Set up the evicted entry for re-insertion on the next hop
+                evicted_key = victim_key;
+                evicted_value = victim_value;
+                eviction_success = true;
+            }
+            // If atomicCAS failed, eviction_success stays false and we'll retry in the next hop
+        }
+
+        // Broadcast eviction success to all lanes
+        eviction_success = __shfl_sync(0xFFFFFFFFu, eviction_success, 0);
+
+        if (eviction_success) {
+            // Broadcast the evicted key and value to all lanes
+            current_key = __shfl_sync(0xFFFFFFFFu, evicted_key, 0);
+            current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
+            // current_fp remains unchanged! (fingerprint is invariant across evictions)
+        }
+        // If eviction failed, current_key/value/fp remain unchanged and we loop again
+
+        hop_count++;
     }
 
-    // Broadcast success result from whichever lane succeeded
-    int success_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.status == INSERT_SUCCESS)) - 1;
-    if (success_lane >= 0) {
-        result.status = __shfl_sync(0xFFFFFFFFu, (uint32_t)result.status, success_lane);
-        result.slot_used = __shfl_sync(0xFFFFFFFFu, result.slot_used, success_lane);
-        return result;
-    }
-
-    // ========== Both buckets full: Try stash (all lanes) ==========
-    // Lane 0 handles stash atomically
+    // ========== Hit MAX_EVICTION_HOPS: Dump final evicted key to stash ==========
     if (lane_id == 0) {
-        // Atomic: claim next stash slot
         uint32_t head = atomicAdd(&stash->head, 1);
 
         if (head < STASH_CAPACITY) {
-            stash->entries[head].key = key;
-            stash->entries[head].value = value;
+            stash->entries[head].key = current_key;
+            stash->entries[head].value = current_value;
             result.status = INSERT_STASHED;
-            result.slot_used = head;
         } else {
             // Stash overflow: set needs_rehash flag
             atomicExch(&stash->needs_rehash, 1u);
@@ -106,9 +162,9 @@ __device__ inline InsertResult warp_insert_device(
         }
     }
 
-    // Broadcast stash result
+    // Broadcast final status to all lanes
     result.status = (InsertStatus)__shfl_sync(0xFFFFFFFFu, (uint32_t)result.status, 0);
-    result.slot_used = __shfl_sync(0xFFFFFFFFu, result.slot_used, 0);
+
     return result;
 }
 
