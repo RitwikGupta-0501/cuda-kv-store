@@ -84,7 +84,7 @@ TEST_F(RehashKernelTest, LoadFactorAfterRehash) {
 
     // After rehash to 2M buckets
     uint32_t new_buckets = old_buckets * 2;
-    uint32_t new_load_limit = new_buckets / 2;
+    // uint32_t new_load_limit = new_buckets / 2; // unused, but kept for logical completeness
 
     // New load factor is now 25%
     double new_load_factor = (double)entries / new_buckets;
