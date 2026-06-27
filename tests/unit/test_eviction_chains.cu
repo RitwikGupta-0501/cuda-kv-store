@@ -60,15 +60,20 @@ TEST_F(EvictionChainTest, ForceEvictionToStash) {
         // we can just fill b1. If the evicted key goes to SOME bucket that is also full, it continues.
         // Instead of trying to perfectly craft a ping-pong, let's just test that an eviction occurs at all.
         
-        // Put random keys in b1 so it's full.
         h_b1.keys[i] = 100 + i;
         h_b1.values[i] = 200 + i;
         h_b1.fingerprint[i] = (uint8_t)(i + 1);
         bucket_set_occupied(&h_b1, i);
+
+        h_b2.keys[i] = 300 + i;
+        h_b2.values[i] = 400 + i;
+        h_b2.fingerprint[i] = (uint8_t)(i + 17);
+        bucket_set_occupied(&h_b2, i);
     }
 
-    // Copy full bucket to device
+    // Copy full buckets to device
     cudaMemcpy(&table_->buckets[target_hash.b1], &h_b1, sizeof(Bucket), cudaMemcpyHostToDevice);
+    cudaMemcpy(&table_->buckets[target_hash.b2], &h_b2, sizeof(Bucket), cudaMemcpyHostToDevice);
 
     // Now insert our key. Since b1 is full, it WILL evict something. 
     // We don't know if the evicted key will find an empty slot in its alternate bucket or bounce a few times.
