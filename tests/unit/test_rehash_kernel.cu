@@ -69,8 +69,8 @@ TEST_F(RehashKernelTest, RealRehashExecution) {
 
     // 3. Execute Rehash Kernel
     RehashContext ctx;
-    ctx.d_old_table = old_table_;
-    ctx.d_new_table = new_table_;
+    ctx.old_table = *old_table_;
+    ctx.new_table = *new_table_;
     ctx.d_stash = stash_;
 
     RehashStats stats;
