@@ -22,8 +22,8 @@ protected:
         new_table_ = get_table1();
         stash_ = get_device_stash();
         
-        cudaMemset(old_table_->buckets, 0, old_table_->capacity * sizeof(Bucket));
-        cudaMemset(new_table_->buckets, 0, new_table_->capacity * sizeof(Bucket));
+        cudaMemset(old_table_->buckets, 0, old_table_->num_buckets * sizeof(Bucket));
+        cudaMemset(new_table_->buckets, 0, new_table_->num_buckets * sizeof(Bucket));
         cudaMemset(stash_, 0, sizeof(StashQueue));
     }
 

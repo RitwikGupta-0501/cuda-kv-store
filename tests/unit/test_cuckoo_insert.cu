@@ -21,7 +21,7 @@ protected:
         stash_ = get_device_stash();
         
         // Clear table and stash
-        cudaMemset(table_->buckets, 0, table_->capacity * sizeof(Bucket));
+        cudaMemset(table_->buckets, 0, table_->num_buckets * sizeof(Bucket));
         cudaMemset(stash_, 0, sizeof(StashQueue));
     }
 
@@ -47,7 +47,7 @@ TEST_F(CuckooInsertTest, InsertIntoEmptyB1) {
     EXPECT_EQ(statuses[0], INSERT_SUCCESS) << "Should insert successfully";
     EXPECT_EQ(hops[0], 0) << "Should take 0 eviction hops";
 
-    HashPair hash = compute_hash_pair(keys[0], table_->capacity - 1);
+    HashPair hash = compute_hash_pair(keys[0], table_->num_buckets - 1);
     
     // Read bucket back to verify
     Bucket h_bucket;
