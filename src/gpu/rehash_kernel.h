@@ -36,7 +36,7 @@ struct RehashStats {
 // Uses identical cuckoo eviction logic as insertion to guarantee no data loss
 // Returns true if successfully inserted, false if unevictable (should be statistically impossible)
 __device__ inline bool rehash_entry_device(
-    BucketTable* new_table,
+    BucketTable new_table,
     uint32_t key,
     uint32_t value,
     uint8_t fingerprint) {
@@ -202,7 +202,7 @@ static __global__ void rehash_table_kernel(
 // Kernel: Drain stash queue into new table with cuckoo eviction chains
 // Each warp cooperatively processes one stash entry (not one thread per entry)
 static __global__ void drain_stash_kernel(
-    BucketTable* new_table,
+    BucketTable new_table,
     StashQueue* stash,
     uint32_t* entries_drained) {
 
@@ -218,7 +218,7 @@ static __global__ void drain_stash_kernel(
 
     // Use rehash_entry_device to insert with cuckoo eviction chains
     // Compute fingerprint from key
-    HashPair hash_pair = compute_hash_pair(entry.key, new_table->bucket_mask);
+    HashPair hash_pair = compute_hash_pair(entry.key, new_table.bucket_mask);
     bool success = rehash_entry_device(new_table, entry.key, entry.value, hash_pair.fingerprint);
 
     // Lane 0 increments counter on success
@@ -229,8 +229,8 @@ static __global__ void drain_stash_kernel(
 
 // Host-side wrapper for rehashing
 struct RehashContext {
-    BucketTable* d_old_table;
-    BucketTable* d_new_table;
+    BucketTable old_table;
+    BucketTable new_table;
     StashQueue* d_stash;
 };
 

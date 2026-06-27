@@ -79,7 +79,7 @@ TEST_F(CuckooInsertTest, MultipleInsertsSameBucket) {
     batch.h_hops = nullptr; // Optional
     batch.num_keys = num;
 
-    warp_insert_batch(d_table_, stash_, batch);
+    warp_insert_batch(*table_, stash_, batch);
 
     for (int i = 0; i < num; ++i) {
         EXPECT_EQ(statuses[i], INSERT_SUCCESS) << "Key " << i << " should insert successfully";
