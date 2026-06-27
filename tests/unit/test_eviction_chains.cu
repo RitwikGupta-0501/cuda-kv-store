@@ -197,12 +197,13 @@ uint32_t mock_atomicCAS(uint32_t* addr, uint32_t compare, uint32_t val) {
 TEST_F(EvictionChainTest, AtomicCASSemantics) {
     // Simulate two warps racing on same victim slot
     uint32_t key_slot = 12345;
+    bucket_b1_.keys[0] = key_slot; // Initial value in the slot
     uint32_t new_key_warp0 = 99999;
     uint32_t new_key_warp1 = 88888;
 
     // Warp 0 tries first
     uint32_t old_key = mock_atomicCAS(&bucket_b1_.keys[0], key_slot, new_key_warp0);
-    EXPECT_EQ(old_key, 0) << "First CAS against empty slot succeeds (old value was 0 from init)";
+    EXPECT_EQ(old_key, key_slot) << "First CAS against victim slot succeeds";
 
     // Verify Warp 0's key is in slot
     EXPECT_EQ(bucket_b1_.keys[0], new_key_warp0);
