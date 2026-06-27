@@ -149,7 +149,8 @@ __device__ inline InsertResult warp_insert_device(
 
     // ========== Hit MAX_EVICTION_HOPS: Dump final evicted key to stash ==========
     if (lane_id == 0) {
-        uint32_t head = atomicAdd(&stash->head, 1);
+        // Cast std::atomic<uint32_t>* to uint32_t* for CUDA intrinsics
+        uint32_t head = atomicAdd((uint32_t*)&stash->head, 1);
 
         if (head < STASH_CAPACITY) {
             stash->entries[head].key = current_key;
@@ -157,7 +158,7 @@ __device__ inline InsertResult warp_insert_device(
             result.status = INSERT_STASHED;
         } else {
             // Stash overflow: set needs_rehash flag
-            atomicExch(&stash->needs_rehash, 1u);
+            atomicExch((uint32_t*)&stash->needs_rehash, 1u);
             result.status = INSERT_FAILED;
         }
     }
