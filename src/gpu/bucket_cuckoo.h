@@ -61,13 +61,13 @@ struct StashEntry {
 
 struct StashQueue {
     // Next write position (atomically incremented by GPU)
-    std::atomic<uint32_t> head;
+    uint32_t head;
 
     // Next read position (incremented by CPU)
-    std::atomic<uint32_t> tail;
+    uint32_t tail;
 
     // Flag: set by GPU if stash overflows or needs rehash
-    std::atomic<uint32_t> needs_rehash;
+    uint32_t needs_rehash;
 
     // Stash entries: 5120 slots = BACKPRESSURE_THRESHOLD + BATCH_SIZE
     // = 64 + 4096 = 4160 minimum, 5120 for safety margin
