@@ -49,6 +49,7 @@ __device__ inline bool rehash_entry_device(
     uint32_t current_key = key;
     uint32_t current_value = value;
     uint32_t hop_count = 0;
+    uint32_t contention_count = 0;
     bool inserted = false;
 
     while (hop_count < MAX_EVICTION_HOPS && !inserted) {
@@ -130,8 +131,8 @@ __device__ inline bool rehash_entry_device(
 
         if (lane_id == 0) {
             // Pseudo-random victim selection
-            uint32_t victim_slot = (hash_pair.b1 ^ hash_pair.b2 ^ hop_count) % 8;
-            Bucket* victim_bucket = (hop_count % 2 == 0) ? bucket_b1 : bucket_b2;
+            uint32_t victim_slot = (hash_pair.b1 ^ hash_pair.b2 ^ hop_count ^ contention_count) % 8;
+            Bucket* victim_bucket = ((hop_count ^ contention_count) % 2 == 0) ? bucket_b1 : bucket_b2;
 
             // Read victim's key
             uint32_t victim_key = victim_bucket->keys[victim_slot];
@@ -142,7 +143,7 @@ __device__ inline bool rehash_entry_device(
 
                 if (old_key == victim_key) {
                     // Lock acquired! Safe to read value and overwrite
-                    uint32_t victim_value = victim_bucket->values[victim_slot];
+                    uint32_t victim_value = ((volatile uint32_t*)victim_bucket->values)[victim_slot];
                     
                     victim_bucket->values[victim_slot] = current_value;
                     victim_bucket->fingerprint[victim_slot] = current_fp;
@@ -163,10 +164,12 @@ __device__ inline bool rehash_entry_device(
             // Broadcast evicted entry
             current_key = __shfl_sync(0xFFFFFFFFu, evicted_key, 0);
             current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
-            // current_fp will be recomputed at the start of the next hop
+            
+            hop_count++;
+            contention_count = 0;
+        } else {
+            contention_count++;
         }
-
-        hop_count++;
     }
 
     // Hit MAX_EVICTION_HOPS during rehash:

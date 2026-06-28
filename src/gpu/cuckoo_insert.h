@@ -47,8 +47,9 @@ __device__ inline InsertResult warp_insert_device(
     uint32_t current_key = key;
     uint32_t current_value = value;
     uint32_t hop_count = 0;
+    uint32_t contention_count = 0;
 
-    while (hop_count < MAX_EVICTION_HOPS) {
+    while (hop_count < MAX_EVICTION_HOPS && result.status == INSERT_FAILED) {
         // Compute buckets for the current key
         HashPair hash_pair = compute_hash_pair(current_key, table.bucket_mask);
         uint8_t current_fp = hash_pair.fingerprint;
@@ -138,11 +139,11 @@ __device__ inline InsertResult warp_insert_device(
         uint32_t evicted_value = 0;
 
         if (lane_id == 0) {
-            // Pseudo-random victim selection: use hash bits XOR'd with hop count
-            uint32_t victim_slot = (hash_pair.b1 ^ hash_pair.b2 ^ hop_count) % 8;
+            // Pseudo-random victim selection: use hash bits XOR'd with hop count and contention
+            uint32_t victim_slot = (hash_pair.b1 ^ hash_pair.b2 ^ hop_count ^ contention_count) % 8;
 
-            // Alternate between b1 and b2 based on hop count
-            Bucket* victim_bucket = (hop_count % 2 == 0) ? bucket_b1 : bucket_b2;
+            // Alternate between b1 and b2 based on hop count and contention
+            Bucket* victim_bucket = ((hop_count ^ contention_count) % 2 == 0) ? bucket_b1 : bucket_b2;
 
             // Read the victim's key
             uint32_t victim_key = victim_bucket->keys[victim_slot];
@@ -153,7 +154,8 @@ __device__ inline InsertResult warp_insert_device(
 
                 if (old_key == victim_key) {
                     // Lock acquired! Safe to read value and overwrite
-                    uint32_t victim_value = victim_bucket->values[victim_slot];
+                    // Force read from L2 to avoid stale L1 cache lines from other SMs
+                    uint32_t victim_value = ((volatile uint32_t*)victim_bucket->values)[victim_slot];
                     
                     victim_bucket->values[victim_slot] = current_value;
                     victim_bucket->fingerprint[victim_slot] = current_fp;
@@ -175,9 +177,11 @@ __device__ inline InsertResult warp_insert_device(
             current_key = __shfl_sync(0xFFFFFFFFu, evicted_key, 0);
             current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
             // current_fp will be recomputed at the start of the next hop
+            hop_count++;
+            contention_count = 0;
+        } else {
+            contention_count++;
         }
-
-        hop_count++;
     }
 
     // ========== Hit MAX_EVICTION_HOPS: Dump final evicted key to stash ==========
