@@ -62,12 +62,15 @@ __device__ inline InsertResult warp_insert_device(
             uint32_t slot = lane_id;
             uint32_t old_mask = bucket_b1->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                uint32_t new_mask = old_mask | (1u << slot);
-                if (atomicCAS(&bucket_b1->occupancy_mask, old_mask, new_mask) == old_mask) {
-                    // Claimed free slot in b1
-                    bucket_b1->keys[slot] = current_key;
+                // Lock empty slot
+                uint32_t old_key = atomicCAS(&bucket_b1->keys[slot], 0, 0xFFFFFFFF);
+                if (old_key == 0) {
                     bucket_b1->values[slot] = current_value;
                     bucket_b1->fingerprint[slot] = current_fp;
+                    __threadfence(); // ensure writes are visible before unlock
+                    bucket_b1->keys[slot] = current_key;
+                    atomicOr(&bucket_b1->occupancy_mask, (1u << slot));
+                    
                     result.status = INSERT_SUCCESS;
                     result.slot_used = slot;
                     result.hops = hop_count;
@@ -90,12 +93,15 @@ __device__ inline InsertResult warp_insert_device(
             uint32_t slot = lane_id - 8;
             uint32_t old_mask = bucket_b2->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                uint32_t new_mask = old_mask | (1u << slot);
-                if (atomicCAS(&bucket_b2->occupancy_mask, old_mask, new_mask) == old_mask) {
-                    // Claimed free slot in b2
-                    bucket_b2->keys[slot] = current_key;
+                // Lock empty slot
+                uint32_t old_key = atomicCAS(&bucket_b2->keys[slot], 0, 0xFFFFFFFF);
+                if (old_key == 0) {
                     bucket_b2->values[slot] = current_value;
                     bucket_b2->fingerprint[slot] = current_fp;
+                    __threadfence(); // ensure writes are visible before unlock
+                    bucket_b2->keys[slot] = current_key;
+                    atomicOr(&bucket_b2->occupancy_mask, (1u << slot));
+                    
                     result.status = INSERT_SUCCESS;
                     result.slot_used = slot;
                     result.hops = hop_count;
@@ -124,25 +130,27 @@ __device__ inline InsertResult warp_insert_device(
             // Alternate between b1 and b2 based on hop count
             Bucket* victim_bucket = (hop_count % 2 == 0) ? bucket_b1 : bucket_b2;
 
-            // Read the victim's key and value
+            // Read the victim's key
             uint32_t victim_key = victim_bucket->keys[victim_slot];
-            uint32_t victim_value = victim_bucket->values[victim_slot];
 
-            // Attempt to swap current_key in via atomicCAS on the key field
-            uint32_t old_key = atomicCAS(&victim_bucket->keys[victim_slot], victim_key, current_key);
+            if (victim_key != 0 && victim_key != 0xFFFFFFFF) {
+                // Attempt to lock victim slot
+                uint32_t old_key = atomicCAS(&victim_bucket->keys[victim_slot], victim_key, 0xFFFFFFFF);
 
-            if (old_key == victim_key) {
-                // We won the race! Eviction succeeded.
-                // Write the rest of the payload atomically
-                victim_bucket->values[victim_slot] = current_value;
-                victim_bucket->fingerprint[victim_slot] = current_fp;
+                if (old_key == victim_key) {
+                    // Lock acquired! Safe to read value and overwrite
+                    uint32_t victim_value = victim_bucket->values[victim_slot];
+                    
+                    victim_bucket->values[victim_slot] = current_value;
+                    victim_bucket->fingerprint[victim_slot] = current_fp;
+                    __threadfence(); // ensure writes are visible before unlock
+                    victim_bucket->keys[victim_slot] = current_key;
 
-                // Set up the evicted entry for re-insertion on the next hop
-                evicted_key = victim_key;
-                evicted_value = victim_value;
-                eviction_success = true;
+                    evicted_key = victim_key;
+                    evicted_value = victim_value;
+                    eviction_success = true;
+                }
             }
-            // If atomicCAS failed, eviction_success stays false and we'll retry in the next hop
         }
 
         // Broadcast eviction success to all lanes
