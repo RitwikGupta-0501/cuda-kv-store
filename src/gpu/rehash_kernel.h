@@ -32,6 +32,8 @@ struct RehashStats {
     RehashStatus status;
 };
 
+#ifdef __CUDACC__
+
 // Device-side: rehash a single key-value pair to new table with eviction chains
 // Uses identical cuckoo eviction logic as insertion to guarantee no data loss
 // Returns true if successfully inserted, false if unevictable (should be statistically impossible)
@@ -226,6 +228,8 @@ static __global__ void drain_stash_kernel(
         atomicAdd(entries_drained, 1);
     }
 }
+
+#endif // __CUDACC__
 
 // Host-side wrapper for rehashing
 struct RehashContext {

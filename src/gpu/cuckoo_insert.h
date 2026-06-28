@@ -29,6 +29,8 @@ struct InsertResult {
     uint32_t hops;         // Number of eviction hops required
 };
 
+#ifdef __CUDACC__
+
 // Device-side insertion function with cuckoo eviction chains
 // Implements full cuckoo hashing: try b1, try b2, then evict up to MAX_EVICTION_HOPS
 __device__ inline InsertResult warp_insert_device(
@@ -210,6 +212,8 @@ static __global__ void warp_insert_kernel(
         if (hops) hops[key_idx] = result.hops;
     }
 }
+
+#endif // __CUDACC__
 
 struct InsertBatch {
     uint32_t* h_keys;      // Host input: keys

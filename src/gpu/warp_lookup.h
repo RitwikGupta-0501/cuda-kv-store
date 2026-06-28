@@ -21,6 +21,8 @@ struct LookupResult {
     bool found;
 };
 
+#ifdef __CUDACC__
+
 // Device-side lookup function (called by kernel)
 __device__ inline LookupResult warp_lookup_device(
     BucketTable table,
@@ -112,6 +114,8 @@ static __global__ void warp_lookup_kernel(
         found_flags[key_idx] = result.found ? 1u : 0u;
     }
 }
+
+#endif // __CUDACC__
 
 // Host-side wrapper for lookup batches
 struct LookupBatch {
