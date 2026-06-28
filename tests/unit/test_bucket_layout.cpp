@@ -29,7 +29,7 @@ TEST_F(BucketLayoutTest, BucketSize) {
 
 // Test 2: Bucket layout (field offsets)
 TEST_F(BucketLayoutTest, BucketFieldOffsets) {
-    Bucket b;
+
 
     // Verify field offsets (for memory layout verification)
     EXPECT_EQ(offsetof(Bucket, keys), 0) << "keys array should be at offset 0";
@@ -161,7 +161,7 @@ TEST_F(BucketLayoutTest, BucketInitialization) {
 
 // Test 8: StashQueue structure size and capacity
 TEST_F(BucketLayoutTest, StashQueueStructure) {
-    EXPECT_EQ(STASH_CAPACITY, 16384) << "Stash capacity should be 16384";
+    EXPECT_EQ(STASH_CAPACITY, 32768) << "Stash capacity should be 32768";
     EXPECT_EQ(sizeof(StashQueue::entries) / sizeof(StashEntry), STASH_CAPACITY)
         << "StashQueue should hold exactly STASH_CAPACITY entries";
 
