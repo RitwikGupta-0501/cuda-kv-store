@@ -94,6 +94,14 @@ static __global__ void warp_lookup_kernel(
     if (key_idx >= num_keys) return;
 
     uint32_t key = keys[key_idx];
+    if (key == EMPTY_KEY) {
+        if ((threadIdx.x % 32) == 0) {
+            values[key_idx] = NOT_FOUND;
+            found_flags[key_idx] = 0;
+        }
+        return;
+    }
+    
     uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
 
     LookupResult result = warp_lookup_device(table, key, fp);

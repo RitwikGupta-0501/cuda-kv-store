@@ -147,6 +147,18 @@ add_executable(test_lookup_correctness
 target_link_libraries(test_lookup_correctness GTest::gtest_main CUDA::cudart)
 add_test(NAME LookupCorrectnessTests COMMAND test_lookup_correctness)
 
+# Engine Concurrent Pipeline Test (Phase 6)
+add_executable(test_engine_concurrent
+    tests/unit/test_engine_concurrent.cu
+    src/engine/warpkv_engine.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/warp_lookup.cu
+    src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
+)
+target_link_libraries(test_engine_concurrent GTest::gtest_main CUDA::cudart)
+add_test(NAME EngineConcurrentTests COMMAND test_engine_concurrent)
+
 # ============================================================================
 # Benchmarks
 # ============================================================================
