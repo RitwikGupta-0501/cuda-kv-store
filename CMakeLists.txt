@@ -153,6 +153,7 @@ add_executable(test_engine_concurrent
     src/engine/warpkv_engine.cu
     src/gpu/cuckoo_insert.cu
     src/gpu/warp_lookup.cu
+    src/gpu/rehash_kernel.cu
     src/gpu/xxhash3.cu
     src/gpu/arena_allocator.cu
 )
@@ -205,6 +206,7 @@ pybind11_add_module(warpkv
     src/engine/warpkv_engine.cu
     src/gpu/cuckoo_insert.cu
     src/gpu/warp_lookup.cu
+    src/gpu/rehash_kernel.cu
     src/gpu/xxhash3.cu
     src/gpu/arena_allocator.cu
 )
