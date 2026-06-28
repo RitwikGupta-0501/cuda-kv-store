@@ -110,8 +110,10 @@ void execute_rehash(
                                cudaGetErrorString(err));
     }
 
-    // Synchronize if stream is null
-    if (stream == nullptr) {
+    // Synchronize to ensure async copies complete before we read the stack variables
+    if (stream != nullptr) {
+        cudaStreamSynchronize(stream);
+    } else {
         cudaDeviceSynchronize();
     }
 

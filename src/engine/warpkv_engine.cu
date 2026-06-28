@@ -2,6 +2,8 @@
 #include <stdexcept>
 #include <iostream>
 #include <string>
+#include <vector>
+#include "../gpu/rehash_kernel.h"
 
 namespace warpkv {
 
@@ -16,8 +18,22 @@ namespace warpkv {
 WarpKVEngine::WarpKVEngine() {}
 
 WarpKVEngine::~WarpKVEngine() {
-    if (current_table.buckets) {
-        cudaFree(current_table.buckets);
+    stop_rehash_thread = true;
+    rehash_cv.notify_one();
+    if (rehash_thread.joinable()) {
+        rehash_thread.join();
+    }
+    
+    if (epoch_table.arenas[0]) {
+        cudaFree(epoch_table.arenas[0]->buckets);
+        cudaFreeHost(epoch_table.arenas[0]);
+    }
+    if (epoch_table.arenas[1]) {
+        cudaFree(epoch_table.arenas[1]->buckets);
+        cudaFreeHost(epoch_table.arenas[1]);
+    }
+    if (rehash_stream) {
+        cudaStreamDestroy(rehash_stream);
     }
     if (h_stash_queue) {
         cudaFreeHost(h_stash_queue);
@@ -49,14 +65,23 @@ WarpKVEngine::~WarpKVEngine() {
 }
 
 void WarpKVEngine::init(uint32_t num_buckets) {
-    // allocate table
-    CUDA_CHECK(cudaMalloc(&current_table.buckets, num_buckets * sizeof(Bucket)));
-    current_table.num_buckets = num_buckets;
-    current_table.bucket_mask = num_buckets - 1;
-    current_table.load_factor_limit = num_buckets / 2;
+    // allocate double-buffered arenas
+    CUDA_CHECK(cudaHostAlloc(&epoch_table.arenas[0], sizeof(BucketTable), cudaHostAllocDefault));
+    CUDA_CHECK(cudaHostAlloc(&epoch_table.arenas[1], sizeof(BucketTable), cudaHostAllocDefault));
     
-    // clear table
-    CUDA_CHECK(cudaMemset(current_table.buckets, 0, num_buckets * sizeof(Bucket)));
+    CUDA_CHECK(cudaMalloc(&epoch_table.arenas[0]->buckets, num_buckets * sizeof(Bucket)));
+    CUDA_CHECK(cudaMalloc(&epoch_table.arenas[1]->buckets, num_buckets * sizeof(Bucket)));
+    
+    for (int i = 0; i < 2; ++i) {
+        epoch_table.arenas[i]->num_buckets = num_buckets;
+        epoch_table.arenas[i]->bucket_mask = num_buckets - 1;
+        epoch_table.arenas[i]->load_factor_limit = num_buckets / 2;
+        CUDA_CHECK(cudaMemset(epoch_table.arenas[i]->buckets, 0, num_buckets * sizeof(Bucket)));
+    }
+    
+    epoch_table.epoch.store(0);
+    epoch_table.readers[0].store(0);
+    epoch_table.readers[1].store(0);
     
     // allocate stash
     CUDA_CHECK(cudaHostAlloc(&h_stash_queue, sizeof(StashQueue), cudaHostAllocMapped));
@@ -89,6 +114,9 @@ void WarpKVEngine::init(uint32_t num_buckets) {
         CUDA_CHECK(cudaMalloc(&d_lookup_found[i], BATCH_SIZE * sizeof(uint32_t)));
     }
     
+    CUDA_CHECK(cudaStreamCreate(&rehash_stream));
+    rehash_thread = std::thread(&WarpKVEngine::rehash_worker, this);
+    
     build_graphs();
 }
 
@@ -107,7 +135,7 @@ void WarpKVEngine::build_graphs() {
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
         
         warp_insert_kernel<<<grid, block, 0, streams[slot].compute>>>(
-            current_table, d_stash_queue, d_keys_in[slot], d_values_in[slot], d_insert_statuses[slot], nullptr, BATCH_SIZE
+            epoch_table.arenas[0][0], d_stash_queue, d_keys_in[slot], d_values_in[slot], d_insert_statuses[slot], nullptr, BATCH_SIZE
         );
         
         CUDA_CHECK(cudaEventRecord(ev_compute[slot], streams[slot].compute));
@@ -120,6 +148,20 @@ void WarpKVEngine::build_graphs() {
         
         cudaGraph_t insert_graph;
         CUDA_CHECK(cudaStreamEndCapture(streams[slot].h2d, &insert_graph));
+        
+        size_t numNodes = 0;
+        CUDA_CHECK(cudaGraphGetNodes(insert_graph, nullptr, &numNodes));
+        std::vector<cudaGraphNode_t> nodes(numNodes);
+        CUDA_CHECK(cudaGraphGetNodes(insert_graph, nodes.data(), &numNodes));
+        for (size_t i = 0; i < numNodes; ++i) {
+            cudaGraphNodeType type;
+            CUDA_CHECK(cudaGraphNodeGetType(nodes[i], &type));
+            if (type == cudaGraphNodeTypeKernel) {
+                insert_nodes[slot] = nodes[i];
+                break;
+            }
+        }
+        
         CUDA_CHECK(cudaGraphInstantiate(&insert_graphs[slot], insert_graph, nullptr, nullptr, 0));
         CUDA_CHECK(cudaGraphDestroy(insert_graph));
         
@@ -132,7 +174,7 @@ void WarpKVEngine::build_graphs() {
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
         
         warp_lookup_kernel<<<grid, block, 0, streams[slot].compute>>>(
-            current_table, d_keys_in[slot], d_values_out[slot], d_lookup_found[slot], BATCH_SIZE
+            epoch_table.arenas[0][0], d_keys_in[slot], d_values_out[slot], d_lookup_found[slot], BATCH_SIZE
         );
         
         CUDA_CHECK(cudaEventRecord(ev_compute[slot], streams[slot].compute));
@@ -146,6 +188,20 @@ void WarpKVEngine::build_graphs() {
         
         cudaGraph_t lookup_graph;
         CUDA_CHECK(cudaStreamEndCapture(streams[slot].h2d, &lookup_graph));
+        
+        numNodes = 0;
+        CUDA_CHECK(cudaGraphGetNodes(lookup_graph, nullptr, &numNodes));
+        nodes.resize(numNodes);
+        CUDA_CHECK(cudaGraphGetNodes(lookup_graph, nodes.data(), &numNodes));
+        for (size_t i = 0; i < numNodes; ++i) {
+            cudaGraphNodeType type;
+            CUDA_CHECK(cudaGraphNodeGetType(nodes[i], &type));
+            if (type == cudaGraphNodeTypeKernel) {
+                lookup_nodes[slot] = nodes[i];
+                break;
+            }
+        }
+        
         CUDA_CHECK(cudaGraphInstantiate(&lookup_graphs[slot], lookup_graph, nullptr, nullptr, 0));
         CUDA_CHECK(cudaGraphDestroy(lookup_graph));
     }
@@ -153,11 +209,79 @@ void WarpKVEngine::build_graphs() {
 
 void WarpKVEngine::apply_backpressure() {
     if (__atomic_load_n(&h_stash_queue->needs_rehash, __ATOMIC_ACQUIRE) != 0) {
-        throw std::runtime_error("Rehash triggered! Stash capacity exceeded.");
+        std::lock_guard<std::mutex> lock(rehash_mutex);
+        rehash_cv.notify_one();
     }
+}
+
+BucketTable* WarpKVEngine::acquire_table(uint64_t& out_epoch) {
+    uint64_t e;
+    while (true) {
+        e = epoch_table.epoch.load(std::memory_order_acquire);
+        epoch_table.readers[e & 1].fetch_add(1, std::memory_order_acquire);
+        if (e == epoch_table.epoch.load(std::memory_order_acquire)) {
+            break;
+        }
+        epoch_table.readers[e & 1].fetch_sub(1, std::memory_order_release);
+    }
+    out_epoch = e;
+    return epoch_table.arenas[e & 1];
+}
+
+void WarpKVEngine::release_table(uint64_t epoch) {
+    epoch_table.readers[epoch & 1].fetch_sub(1, std::memory_order_release);
+}
+
+void WarpKVEngine::update_graph_nodes(int slot, BucketTable* current_tbl) {
+    dim3 block(256);
+    dim3 grid(BATCH_SIZE / 8);
+    uint32_t batch_size = BATCH_SIZE;
+    uint32_t* null_ptr = nullptr;
     
-    if (__atomic_load_n(&h_stash_queue->head, __ATOMIC_ACQUIRE) >= BACKPRESSURE_THRESHOLD) {
-        throw std::runtime_error("Stash full, rehash not implemented in Phase 6");
+    void* lookup_args[] = { current_tbl, &d_keys_in[slot], &d_values_out[slot], &d_lookup_found[slot], &batch_size };
+    CUDA_CHECK(cudaGraphExecKernelNodeSetParams(lookup_graphs[slot], lookup_nodes[slot], (void*)warp_lookup_kernel, grid, block, nullptr, lookup_args));
+    
+    void* insert_args[] = { current_tbl, &d_stash_queue, &d_keys_in[slot], &d_values_in[slot], &d_insert_statuses[slot], &null_ptr, &batch_size };
+    CUDA_CHECK(cudaGraphExecKernelNodeSetParams(insert_graphs[slot], insert_nodes[slot], (void*)warp_insert_kernel, grid, block, nullptr, insert_args));
+}
+
+void WarpKVEngine::rehash_worker() {
+    while (!stop_rehash_thread) {
+        {
+            std::unique_lock<std::mutex> lock(rehash_mutex);
+            rehash_cv.wait(lock, [this]() { 
+                return (__atomic_load_n(&h_stash_queue->needs_rehash, __ATOMIC_ACQUIRE) != 0) || stop_rehash_thread; 
+            });
+        }
+        
+        if (stop_rehash_thread) break;
+        
+        is_rehashing.store(true, std::memory_order_release);
+        
+        uint64_t old_epoch = epoch_table.epoch.load(std::memory_order_acquire);
+        BucketTable* old_tbl = epoch_table.arenas[old_epoch & 1];
+        BucketTable* new_tbl = epoch_table.arenas[(old_epoch + 1) & 1];
+        
+        RehashContext ctx;
+        ctx.old_table = *old_tbl;
+        ctx.new_table = *new_tbl;
+        ctx.d_stash = d_stash_queue;
+        
+        RehashStats stats;
+        execute_rehash(ctx, &stats, rehash_stream);
+        
+        epoch_table.epoch.store(old_epoch + 1, std::memory_order_release);
+        
+        while (epoch_table.readers[old_epoch & 1].load(std::memory_order_acquire) > 0) {
+            std::this_thread::yield();
+        }
+        
+        CUDA_CHECK(cudaMemsetAsync(old_tbl->buckets, 0, old_tbl->num_buckets * sizeof(Bucket), rehash_stream));
+        CUDA_CHECK(cudaStreamSynchronize(rehash_stream));
+        
+        __atomic_store_n(&h_stash_queue->needs_rehash, 0, __ATOMIC_RELEASE);
+        
+        is_rehashing.store(false, std::memory_order_release);
     }
 }
 
@@ -167,12 +291,23 @@ void WarpKVEngine::submit_insert_batch(const uint32_t* keys, const uint32_t* val
         throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
     }
     
+    while (is_rehashing.load(std::memory_order_acquire)) {
+        std::this_thread::yield();
+    }
+    
     apply_backpressure();
     
     int slot = current_slot.fetch_add(1, std::memory_order_relaxed) % NUM_SLOTS;
     std::lock_guard<std::mutex> lock(slot_mutex[slot]);
     
     apply_backpressure();
+    
+    uint64_t epoch;
+    BucketTable* current_tbl = acquire_table(epoch);
+    if (active_epoch[slot] != epoch) {
+        update_graph_nodes(slot, current_tbl);
+        active_epoch[slot] = epoch;
+    }
     
     std::memcpy(h_keys_in[slot], keys, count * sizeof(uint32_t));
     std::memcpy(h_values_in[slot], values, count * sizeof(uint32_t));
@@ -185,6 +320,8 @@ void WarpKVEngine::submit_insert_batch(const uint32_t* keys, const uint32_t* val
     
     CUDA_CHECK(cudaGraphLaunch(insert_graphs[slot], streams[slot].h2d));
     CUDA_CHECK(cudaStreamSynchronize(streams[slot].h2d));
+    
+    release_table(epoch);
 }
 
 void WarpKVEngine::submit_lookup_batch(const uint32_t* keys, uint32_t* values_out, uint32_t count) {
@@ -200,6 +337,13 @@ void WarpKVEngine::submit_lookup_batch(const uint32_t* keys, uint32_t* values_ou
     
     apply_backpressure();
     
+    uint64_t epoch;
+    BucketTable* current_tbl = acquire_table(epoch);
+    if (active_epoch[slot] != epoch) {
+        update_graph_nodes(slot, current_tbl);
+        active_epoch[slot] = epoch;
+    }
+    
     std::memcpy(h_keys_in[slot], keys, count * sizeof(uint32_t));
     
     if (count < BATCH_SIZE) {
@@ -212,6 +356,8 @@ void WarpKVEngine::submit_lookup_batch(const uint32_t* keys, uint32_t* values_ou
     CUDA_CHECK(cudaStreamSynchronize(streams[slot].h2d));
     
     std::memcpy(values_out, h_values_out[slot], count * sizeof(uint32_t));
+    
+    release_table(epoch);
 }
 
 } // namespace warpkv
