@@ -164,14 +164,26 @@ add_test(NAME EngineConcurrentTests COMMAND test_engine_concurrent)
 # Benchmarks
 # ============================================================================
 
-# Hash throughput benchmark (Phase 1)
+# Hash throughput# GPU kernel debugging (Phase 4.5)
 add_executable(bench_hash_throughput
     benchmarks/hash_throughput.cu
     src/gpu/xxhash3.cu
 )
 target_link_libraries(bench_hash_throughput CUDA::cudart)
 
-# Synthetic load test — CPU simulation (quick validation)
+# Phase 9: Engine Benchmark
+add_executable(engine_benchmark
+    benchmarks/engine_benchmark.cu
+    src/engine/warpkv_engine.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/warp_lookup.cu
+    src/gpu/rehash_kernel.cu
+    src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
+)
+target_link_libraries(engine_benchmark CUDA::cudart)
+
+# Deprecated (CPU version from Phase 0)simulation (quick validation)
 add_executable(synthetic_load_test
     benchmarks/synthetic_load_test.cu
 )
