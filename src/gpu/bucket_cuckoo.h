@@ -69,13 +69,13 @@ struct StashQueue {
     // Flag: set by GPU if stash overflows or needs rehash
     uint32_t needs_rehash;
 
-    // Stash entries: 5120 slots = BACKPRESSURE_THRESHOLD + BATCH_SIZE
-    // = 64 + 4096 = 4160 minimum, 5120 for safety margin
-    StashEntry entries[5120];
+    // Stash entries: 16384 slots = BACKPRESSURE_THRESHOLD + 3 * BATCH_SIZE
+    // = 4096 + 12288 = 16384
+    StashEntry entries[16384];
 };
 
 // Verify size is reasonable
-static_assert(sizeof(StashQueue) < 100000, "StashQueue should be < 100KB");
+static_assert(sizeof(StashQueue) < 150000, "StashQueue should be < 150KB");
 
 // ============================================================================
 // Bucket Utility Functions (Host-side)
@@ -112,13 +112,13 @@ __host__ __device__ inline void bucket_clear_occupied(Bucket* bucket, int slot) 
 static constexpr uint32_t MAX_EVICTION_HOPS = 32;
 
 // Backpressure threshold: triggers rehash when stash reaches this
-static constexpr uint32_t BACKPRESSURE_THRESHOLD = 64;
+static constexpr uint32_t BACKPRESSURE_THRESHOLD = 4096;
 
 // Batch size: number of keys processed per GPU batch
 static constexpr uint32_t BATCH_SIZE = 4096;
 
-// Stash capacity: must be >= BACKPRESSURE_THRESHOLD + BATCH_SIZE
-static constexpr uint32_t STASH_CAPACITY = 5120;
+// Stash capacity: must be >= BACKPRESSURE_THRESHOLD + 3 * BATCH_SIZE
+static constexpr uint32_t STASH_CAPACITY = 16384;
 
 // Empty key marker (for CPU-side operations)
 static constexpr uint32_t EMPTY_KEY = 0xFFFFFFFFu;

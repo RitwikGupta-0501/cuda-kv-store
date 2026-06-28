@@ -197,6 +197,8 @@ static __global__ void warp_insert_kernel(
     if (key_idx >= num_keys) return;
 
     uint32_t key = keys[key_idx];
+    if (key == EMPTY_KEY) return;
+    
     uint32_t value = values[key_idx];
     uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
 
