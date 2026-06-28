@@ -69,13 +69,12 @@ struct StashQueue {
     // Flag: set by GPU if stash overflows or needs rehash
     uint32_t needs_rehash;
 
-    // Stash entries: 16384 slots = BACKPRESSURE_THRESHOLD + 3 * BATCH_SIZE
-    // = 4096 + 3 * 4096 = 16384
-    StashEntry entries[16384];
+    // Stash entries: 32768 slots
+    StashEntry entries[32768];
 };
 
 // Verify size is reasonable
-static_assert(sizeof(StashQueue) < 150000, "StashQueue should be < 150KB");
+static_assert(sizeof(StashQueue) < 300000, "StashQueue should be < 300KB");
 
 // ============================================================================
 // Bucket Utility Functions (Host-side)

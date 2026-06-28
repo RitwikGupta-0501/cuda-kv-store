@@ -96,8 +96,7 @@ TEST_F(ArenaAllocatorTest, StashCapacityFormula) {
 
     // Verify it's reasonable (~128 KB)
     size_t stash_memory = STASH_CAPACITY * sizeof(StashEntry);
-    EXPECT_LT(stash_memory, 200 * 1024)
-        << "Stash should be < 200 KB";
+    EXPECT_LT(stash_memory, 300 * 1024) << "Stash should be < 300 KB";
 
     EXPECT_GT(stash_memory, 100 * 1024)
         << "Stash should be > 100 KB (16384 entries)";

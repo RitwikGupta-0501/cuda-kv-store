@@ -52,7 +52,7 @@ __device__ inline bool rehash_entry_device(
     uint32_t contention_count = 0;
     bool inserted = false;
 
-    while (hop_count < MAX_EVICTION_HOPS && !inserted) {
+    while (hop_count < MAX_EVICTION_HOPS && contention_count < 10000 && !inserted) {
         // Recompute hash for new table (new bucket mask)
         HashPair hash_pair = compute_hash_pair(current_key, new_table.bucket_mask);
         uint8_t current_fp = hash_pair.fingerprint;
