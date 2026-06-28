@@ -164,10 +164,9 @@ __device__ inline bool rehash_entry_device(
             current_key = __shfl_sync(0xFFFFFFFFu, evicted_key, 0);
             current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
             // current_fp will be recomputed at the start of the next hop
-            
-            hop_count++; // Only count actual evictions towards the MAX_EVICTION_HOPS limit
         }
-        // If eviction failed due to lock contention, we retry next hop with same current_key
+
+        hop_count++;
     }
 
     // Hit MAX_EVICTION_HOPS during rehash:

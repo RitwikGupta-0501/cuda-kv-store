@@ -175,10 +175,9 @@ __device__ inline InsertResult warp_insert_device(
             current_key = __shfl_sync(0xFFFFFFFFu, evicted_key, 0);
             current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
             // current_fp will be recomputed at the start of the next hop
-            
-            hop_count++; // Only count actual evictions towards the MAX_EVICTION_HOPS limit
         }
-        // If eviction failed due to lock contention, we simply retry the hop
+
+        hop_count++;
     }
 
     // ========== Hit MAX_EVICTION_HOPS: Dump final evicted key to stash ==========
