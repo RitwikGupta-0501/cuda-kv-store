@@ -54,7 +54,7 @@ TEST_F(WarpLookupTest, SingleKeyB1Hit) {
     batch.h_found = found_out;
     batch.num_keys = 1;
 
-    warp_lookup_batch(*table_, batch);
+    warp_lookup_batch(*table_, nullptr, batch);
 
     EXPECT_EQ(found_out[0], 1) << "Key should be found";
     EXPECT_EQ(values_out[0], value) << "Value should match";
@@ -86,7 +86,7 @@ TEST_F(WarpLookupTest, SingleKeyB2Hit) {
     batch.h_found = found_out;
     batch.num_keys = 1;
 
-    warp_lookup_batch(*table_, batch);
+    warp_lookup_batch(*table_, nullptr, batch);
 
     EXPECT_EQ(found_out[0], 1) << "Key should be found in b2";
     EXPECT_EQ(values_out[0], value) << "Value should match";
@@ -106,7 +106,7 @@ TEST_F(WarpLookupTest, KeyNotFound) {
     batch.h_found = found_out;
     batch.num_keys = 1;
 
-    warp_lookup_batch(*table_, batch);
+    warp_lookup_batch(*table_, nullptr, batch);
 
     EXPECT_EQ(found_out[0], 0) << "Key should NOT be found";
 }
@@ -137,7 +137,7 @@ TEST_F(WarpLookupTest, FingerprintFalsePositive) {
     batch.h_found = found_out;
     batch.num_keys = 1;
 
-    warp_lookup_batch(*table_, batch);
+    warp_lookup_batch(*table_, nullptr, batch);
 
     // Since the key is different, even if fingerprint matched, it should double-check the key and return NOT FOUND
     EXPECT_EQ(found_out[0], 0) << "Key should NOT be found despite fingerprint collision";

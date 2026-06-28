@@ -7,6 +7,7 @@ namespace warpkv {
 // Host-side wrapper: allocate temporary buffers and launch kernel
 void warp_lookup_batch(
     BucketTable table,
+    StashQueue* d_stash,
     const LookupBatch& batch,
     cudaStream_t stream) {
 
@@ -62,6 +63,7 @@ void warp_lookup_batch(
 
     warp_lookup_kernel<<<num_blocks, threads_per_block, 0, stream>>>(
         table,
+        d_stash,
         d_keys,
         d_values,
         d_found,
