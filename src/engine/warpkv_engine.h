@@ -8,8 +8,20 @@
 #include <atomic>
 #include <thread>
 #include <chrono>
+#include <condition_variable>
 
 namespace warpkv {
+
+struct EpochTable {
+    BucketTable* arenas[2] = {nullptr, nullptr};
+    std::atomic<uint64_t> epoch{0};
+    std::atomic<int32_t> readers[2];
+
+    EpochTable() {
+        readers[0] = 0;
+        readers[1] = 0;
+    }
+};
 
 struct PipelineStreams {
     cudaStream_t h2d;
@@ -44,16 +56,23 @@ private:
     // Graphs
     cudaGraphExec_t lookup_graphs[NUM_SLOTS] = {nullptr};
     cudaGraphExec_t insert_graphs[NUM_SLOTS] = {nullptr};
+    cudaGraphNode_t lookup_nodes[NUM_SLOTS] = {nullptr};
+    cudaGraphNode_t insert_nodes[NUM_SLOTS] = {nullptr};
+    uint64_t active_epoch[NUM_SLOTS] = {0, 0, 0};
     
     // Concurrency control
     std::atomic<uint32_t> current_slot{0};
     std::mutex slot_mutex[NUM_SLOTS]; 
     
-    // Table and Backpressure
-    // NOTE (Phase 7): current_table is captured by value into the static graphs.
-    // When rehash happens, the graphs must be updated using cudaGraphExecKernelNodeSetParams
-    // to point to the newly allocated buckets pointer.
-    BucketTable current_table; // Simplified for Phase 6 (single table)
+    // Table and EBR
+    EpochTable epoch_table;
+    std::atomic<bool> is_rehashing{false};
+    std::thread rehash_thread;
+    std::mutex rehash_mutex;
+    std::condition_variable rehash_cv;
+    std::atomic<bool> stop_rehash_thread{false};
+    cudaStream_t rehash_stream = nullptr;
+    
     StashQueue* h_stash_queue = nullptr;
     StashQueue* d_stash_queue = nullptr;
     
@@ -76,6 +95,10 @@ public:
     void submit_lookup_batch(const uint32_t* keys, uint32_t* values_out, uint32_t count);
     
 private:
+    BucketTable* acquire_table(uint64_t& out_epoch);
+    void release_table(uint64_t epoch);
+    void rehash_worker();
+    void update_graph_nodes(int slot, BucketTable* current_tbl);
     void apply_backpressure();
 };
 
