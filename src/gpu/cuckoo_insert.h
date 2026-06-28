@@ -194,6 +194,10 @@ __device__ inline InsertResult warp_insert_device(
             stash->entries[head].value = current_value;
             result.status = INSERT_STASHED;
             result.hops = hop_count;
+            
+            if (head >= BACKPRESSURE_THRESHOLD) {
+                atomicExch((uint32_t*)&stash->needs_rehash, 1u);
+            }
         } else {
             // Stash overflow: set needs_rehash flag
             atomicExch((uint32_t*)&stash->needs_rehash, 1u);

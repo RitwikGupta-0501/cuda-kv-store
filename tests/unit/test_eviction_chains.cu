@@ -109,7 +109,7 @@ TEST_F(EvictionChainTest, ForceEvictionToStash) {
     l_batch.h_found = found_out;
     l_batch.num_keys = 1;
 
-    warp_lookup_batch(*table_, l_batch);
+    warp_lookup_batch(*table_, nullptr, l_batch);
 
     EXPECT_EQ(found_out[0], 1) << "Eviction chain must not lose the inserted key";
     EXPECT_EQ(values_out[0], value_to_insert) << "Value must match";

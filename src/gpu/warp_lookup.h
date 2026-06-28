@@ -26,6 +26,7 @@ struct LookupResult {
 // Device-side lookup function (called by kernel)
 __device__ inline LookupResult warp_lookup_device(
     BucketTable table,
+    StashQueue* stash,
     uint32_t key,
     uint8_t fingerprint) {
 
@@ -71,11 +72,33 @@ __device__ inline LookupResult warp_lookup_device(
     }
 
     // Broadcast result from whichever lane found it
-    // Use warp shuffle to combine results: if any lane found it, that value wins
     int found_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.found)) - 1;
     if (found_lane >= 0) {
         result.value = __shfl_sync(0xFFFFFFFFu, result.value, found_lane);
         result.found = true;
+        return result;
+    }
+
+    // ========== Not found in buckets: Scan Stash ==========
+    if (stash != nullptr) {
+        // Read current size of stash
+        uint32_t stash_size = ((volatile uint32_t*)&stash->head)[0];
+        
+        // Warp cooperatively scans the stash
+        for (uint32_t i = lane_id; i < stash_size; i += 32) {
+            if (stash->entries[i].key == key) {
+                result.value = stash->entries[i].value;
+                result.found = true;
+                break;
+            }
+        }
+        
+        // Broadcast result again
+        found_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.found)) - 1;
+        if (found_lane >= 0) {
+            result.value = __shfl_sync(0xFFFFFFFFu, result.value, found_lane);
+            result.found = true;
+        }
     }
 
     return result;
@@ -85,6 +108,7 @@ __device__ inline LookupResult warp_lookup_device(
 // Assumes one warp per key (32 threads per key)
 static __global__ void warp_lookup_kernel(
     BucketTable table,
+    StashQueue* stash,
     const uint32_t* keys,
     uint32_t* values,
     uint32_t* found_flags,
@@ -106,7 +130,7 @@ static __global__ void warp_lookup_kernel(
     
     uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
 
-    LookupResult result = warp_lookup_device(table, key, fp);
+    LookupResult result = warp_lookup_device(table, stash, key, fp);
 
     // Lane 0 writes result
     if ((threadIdx.x % 32) == 0) {
@@ -128,6 +152,7 @@ struct LookupBatch {
 // Launch lookup kernel for a batch of keys
 void warp_lookup_batch(
     BucketTable table,
+    StashQueue* d_stash,
     const LookupBatch& batch,
     cudaStream_t stream = nullptr);
 

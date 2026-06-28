@@ -178,7 +178,7 @@ void WarpKVEngine::build_graphs() {
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
         
         warp_lookup_kernel<<<grid, block, 0, streams[slot].compute>>>(
-            epoch_table.arenas[0][0], d_keys_in[slot], d_values_out[slot], d_lookup_found[slot], BATCH_SIZE
+            epoch_table.arenas[0][0], d_stash_queue, d_keys_in[slot], d_values_out[slot], d_lookup_found[slot], BATCH_SIZE
         );
         
         CUDA_CHECK(cudaEventRecord(ev_compute[slot], streams[slot].compute));
@@ -244,7 +244,7 @@ void WarpKVEngine::update_graph_nodes(int slot, BucketTable* current_tbl) {
     uint32_t batch_size = BATCH_SIZE;
     uint32_t* null_ptr = nullptr;
     
-    void* lookup_args[] = { current_tbl, &d_keys_in[slot], &d_values_out[slot], &d_lookup_found[slot], &batch_size };
+    void* lookup_args[] = { current_tbl, &d_stash_queue, &d_keys_in[slot], &d_values_out[slot], &d_lookup_found[slot], &batch_size };
     cudaKernelNodeParams lookup_node_params = {0};
     lookup_node_params.func = (void*)warp_lookup_kernel;
     lookup_node_params.gridDim = grid;
