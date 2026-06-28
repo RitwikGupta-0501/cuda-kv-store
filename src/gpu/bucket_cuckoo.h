@@ -117,8 +117,9 @@ static constexpr uint32_t BACKPRESSURE_THRESHOLD = 4096;
 // Batch size: number of keys processed per GPU batch
 static constexpr uint32_t BATCH_SIZE = 4096;
 
-// Stash capacity: must be >= BACKPRESSURE_THRESHOLD + 3 * BATCH_SIZE
-static constexpr uint32_t STASH_CAPACITY = 16384;
+// Stash queue for keys that hit MAX_EVICTION_HOPS
+// Must be large enough to absorb burst collisions before rehash kicks in (Max in-flight = 4 streams * 4096 = 16384)
+static constexpr uint32_t STASH_CAPACITY = 32768;
 
 // Empty key marker (for CPU-side operations)
 static constexpr uint32_t EMPTY_KEY = 0xFFFFFFFFu;
