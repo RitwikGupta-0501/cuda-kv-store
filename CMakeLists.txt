@@ -191,7 +191,15 @@ target_link_libraries(gpu_synthetic_load_test CUDA::cudart)
 # Python Bindings (Phase 7)
 # ============================================================================
 
-find_package(pybind11 REQUIRED)
+find_package(pybind11 QUIET)
+if(NOT pybind11_FOUND)
+    message(STATUS "pybind11 not found, downloading...")
+    FetchContent_Declare(
+        pybind11
+        URL https://github.com/pybind/pybind11/archive/refs/tags/v2.11.1.tar.gz
+    )
+    FetchContent_MakeAvailable(pybind11)
+endif()
 pybind11_add_module(warpkv
     src/python/warpkv_binding.cpp
     src/engine/warpkv_engine.cu
