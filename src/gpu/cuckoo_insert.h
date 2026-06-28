@@ -49,7 +49,7 @@ __device__ inline InsertResult warp_insert_device(
     uint32_t hop_count = 0;
     uint32_t contention_count = 0;
 
-    while (hop_count < MAX_EVICTION_HOPS && result.status == INSERT_FAILED) {
+    while (hop_count < MAX_EVICTION_HOPS && contention_count < 1000 && result.status == INSERT_FAILED) {
         // Compute buckets for the current key
         HashPair hash_pair = compute_hash_pair(current_key, table.bucket_mask);
         uint8_t current_fp = hash_pair.fingerprint;
