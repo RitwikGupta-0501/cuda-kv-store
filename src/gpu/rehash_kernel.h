@@ -59,23 +59,30 @@ __device__ inline bool rehash_entry_device(
         Bucket* bucket_b1 = &new_table.buckets[hash_pair.b1];
         Bucket* bucket_b2 = &new_table.buckets[hash_pair.b2];
 
-        // ========== Try bucket b1 ==========
-        // Lanes 0-7 try their corresponding slots in parallel
+        // ========== Try to insert in bucket b1 ==========
         bool b1_success = false;
+        bool b1_claimed = false;
         if (lane_id < 8) {
             uint32_t slot = lane_id;
             uint32_t old_mask = bucket_b1->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                // Lock empty slot
                 uint32_t old_key = atomicCAS(&bucket_b1->keys[slot], 0, 0xFFFFFFFF);
-                if (old_key == 0) {
-                    bucket_b1->values[slot] = current_value;
-                    bucket_b1->fingerprint[slot] = current_fp;
-                    __threadfence(); // ensure writes are visible before unlock
-                    bucket_b1->keys[slot] = current_key;
-                    atomicOr(&bucket_b1->occupancy_mask, (1u << slot));
-                    b1_success = true;
-                }
+                if (old_key == 0) b1_claimed = true;
+            }
+        }
+        
+        int b1_winner = __ffs(__ballot_sync(0xFFFFFFFFu, b1_claimed)) - 1;
+        if (b1_claimed) {
+            uint32_t slot = lane_id;
+            if (lane_id == b1_winner) {
+                bucket_b1->values[slot] = current_value;
+                bucket_b1->fingerprint[slot] = current_fp;
+                __threadfence(); // ensure writes are visible before unlock
+                bucket_b1->keys[slot] = current_key;
+                atomicOr(&bucket_b1->occupancy_mask, (1u << slot));
+                b1_success = true;
+            } else {
+                bucket_b1->keys[slot] = 0; // Release unused locks
             }
         }
 
@@ -84,23 +91,30 @@ __device__ inline bool rehash_entry_device(
             return true;
         }
 
-        // ========== Try bucket b2 ==========
-        // Lanes 8-15 try their corresponding slots in parallel
+        // ========== Try to insert in bucket b2 ==========
         bool b2_success = false;
+        bool b2_claimed = false;
         if (lane_id >= 8 && lane_id < 16) {
             uint32_t slot = lane_id - 8;
             uint32_t old_mask = bucket_b2->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                // Lock empty slot
                 uint32_t old_key = atomicCAS(&bucket_b2->keys[slot], 0, 0xFFFFFFFF);
-                if (old_key == 0) {
-                    bucket_b2->values[slot] = current_value;
-                    bucket_b2->fingerprint[slot] = current_fp;
-                    __threadfence(); // ensure writes are visible before unlock
-                    bucket_b2->keys[slot] = current_key;
-                    atomicOr(&bucket_b2->occupancy_mask, (1u << slot));
-                    b2_success = true;
-                }
+                if (old_key == 0) b2_claimed = true;
+            }
+        }
+        
+        int b2_winner = __ffs(__ballot_sync(0xFFFFFFFFu, b2_claimed)) - 1;
+        if (b2_claimed) {
+            uint32_t slot = lane_id - 8;
+            if (lane_id == b2_winner) {
+                bucket_b2->values[slot] = current_value;
+                bucket_b2->fingerprint[slot] = current_fp;
+                __threadfence(); // ensure writes are visible before unlock
+                bucket_b2->keys[slot] = current_key;
+                atomicOr(&bucket_b2->occupancy_mask, (1u << slot));
+                b2_success = true;
+            } else {
+                bucket_b2->keys[slot] = 0; // Release unused locks
             }
         }
 
