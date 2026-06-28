@@ -71,6 +71,7 @@ private:
     std::mutex rehash_mutex;
     std::condition_variable rehash_cv;
     std::atomic<bool> stop_rehash_thread{false};
+    std::atomic<uint32_t> active_inserts{0};
     cudaStream_t rehash_stream = nullptr;
     
     StashQueue* h_stash_queue = nullptr;
