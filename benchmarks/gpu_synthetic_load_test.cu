@@ -149,7 +149,7 @@ int main(int argc, char** argv) {
         l_batch.h_found = found_flags.data();
         l_batch.num_keys = current_batch_size;
         
-        warp_lookup_batch(*d_table, l_batch);
+        warp_lookup_batch(*d_table, d_stash, l_batch);
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
             if (found_flags[i]) {
@@ -185,7 +185,7 @@ int main(int argc, char** argv) {
         l_batch.h_found = found_flags.data();
         l_batch.num_keys = current_batch_size;
         
-        warp_lookup_batch(*d_table, l_batch);
+        warp_lookup_batch(*d_table, d_stash, l_batch);
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
             if (found_flags[i]) false_positives++;
