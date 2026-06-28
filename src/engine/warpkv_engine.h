@@ -58,6 +58,8 @@ private:
     cudaGraphExec_t insert_graphs[NUM_SLOTS] = {nullptr};
     cudaGraphNode_t lookup_nodes[NUM_SLOTS] = {nullptr};
     cudaGraphNode_t insert_nodes[NUM_SLOTS] = {nullptr};
+    cudaGraph_t template_insert_graphs[NUM_SLOTS] = {nullptr};
+    cudaGraph_t template_lookup_graphs[NUM_SLOTS] = {nullptr};
     uint64_t active_epoch[NUM_SLOTS] = {0, 0, 0};
     
     // Concurrency control

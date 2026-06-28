@@ -52,6 +52,8 @@ WarpKVEngine::~WarpKVEngine() {
         
         if (insert_graphs[i]) cudaGraphExecDestroy(insert_graphs[i]);
         if (lookup_graphs[i]) cudaGraphExecDestroy(lookup_graphs[i]);
+        if (template_insert_graphs[i]) cudaGraphDestroy(template_insert_graphs[i]);
+        if (template_lookup_graphs[i]) cudaGraphDestroy(template_lookup_graphs[i]);
         
         if (h_keys_in[i]) cudaFreeHost(h_keys_in[i]);
         if (h_values_in[i]) cudaFreeHost(h_values_in[i]);
@@ -165,7 +167,7 @@ void WarpKVEngine::build_graphs() {
         }
         
         CUDA_CHECK(cudaGraphInstantiate(&insert_graphs[slot], insert_graph, nullptr, nullptr, 0));
-        CUDA_CHECK(cudaGraphDestroy(insert_graph));
+        template_insert_graphs[slot] = insert_graph;
         
         // ================= LOOKUP GRAPH =================
         CUDA_CHECK(cudaStreamBeginCapture(streams[slot].h2d, cudaStreamCaptureModeGlobal));
@@ -205,7 +207,7 @@ void WarpKVEngine::build_graphs() {
         }
         
         CUDA_CHECK(cudaGraphInstantiate(&lookup_graphs[slot], lookup_graph, nullptr, nullptr, 0));
-        CUDA_CHECK(cudaGraphDestroy(lookup_graph));
+        template_lookup_graphs[slot] = lookup_graph;
     }
 }
 
