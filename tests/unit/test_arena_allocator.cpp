@@ -87,21 +87,20 @@ TEST_F(ArenaAllocatorTest, VRAMBudget) {
 
 // Test 5: Stash capacity formula
 TEST_F(ArenaAllocatorTest, StashCapacityFormula) {
-    // STASH_CAPACITY = BACKPRESSURE_THRESHOLD + BATCH_SIZE + margin
-    // = 64 + 4096 + margin
-    // = 4160 minimum, 5120 with margin
+    // STASH_CAPACITY = BACKPRESSURE_THRESHOLD + NUM_SLOTS * BATCH_SIZE
+    // = 4096 + 3 * 4096 = 16384
 
-    uint32_t required_min = BACKPRESSURE_THRESHOLD + BATCH_SIZE;
+    uint32_t required_min = BACKPRESSURE_THRESHOLD + 3 * BATCH_SIZE;
     EXPECT_GE(STASH_CAPACITY, required_min)
         << "Stash must hold at least " << required_min << " entries";
 
-    // Verify it's reasonable (~40 KB)
+    // Verify it's reasonable (~128 KB)
     size_t stash_memory = STASH_CAPACITY * sizeof(StashEntry);
-    EXPECT_LT(stash_memory, 100 * 1024)
-        << "Stash should be < 100 KB";
+    EXPECT_LT(stash_memory, 200 * 1024)
+        << "Stash should be < 200 KB";
 
-    EXPECT_GT(stash_memory, 30 * 1024)
-        << "Stash should be > 30 KB (5120 entries)";
+    EXPECT_GT(stash_memory, 100 * 1024)
+        << "Stash should be > 100 KB (16384 entries)";
 }
 
 // Test 6: Bucket initialization

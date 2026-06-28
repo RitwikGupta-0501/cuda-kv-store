@@ -161,21 +161,21 @@ TEST_F(BucketLayoutTest, BucketInitialization) {
 
 // Test 8: StashQueue structure size and capacity
 TEST_F(BucketLayoutTest, StashQueueStructure) {
-    EXPECT_EQ(STASH_CAPACITY, 5120) << "Stash capacity should be 5120";
+    EXPECT_EQ(STASH_CAPACITY, 16384) << "Stash capacity should be 16384";
     EXPECT_EQ(sizeof(StashQueue::entries) / sizeof(StashEntry), STASH_CAPACITY)
         << "StashQueue should hold exactly STASH_CAPACITY entries";
 
-    // Verify stash fits the formula: BACKPRESSURE_THRESHOLD + BATCH_SIZE
-    EXPECT_GE(STASH_CAPACITY, BACKPRESSURE_THRESHOLD + BATCH_SIZE)
-        << "Stash must hold at least BACKPRESSURE_THRESHOLD + BATCH_SIZE";
+    // Verify stash fits the formula: BACKPRESSURE_THRESHOLD + NUM_SLOTS * BATCH_SIZE
+    EXPECT_GE(STASH_CAPACITY, BACKPRESSURE_THRESHOLD + 3 * BATCH_SIZE)
+        << "Stash must hold at least BACKPRESSURE_THRESHOLD + NUM_SLOTS * BATCH_SIZE";
 }
 
 // Test 9: Bucket constants are correct
 TEST_F(BucketLayoutTest, Constants) {
     EXPECT_EQ(MAX_EVICTION_HOPS, 32) << "Max eviction hops should be 32";
-    EXPECT_EQ(BACKPRESSURE_THRESHOLD, 64) << "Backpressure at 64 (50% of 128 min stash)";
+    EXPECT_EQ(BACKPRESSURE_THRESHOLD, 4096) << "Backpressure threshold should be 4096";
     EXPECT_EQ(BATCH_SIZE, 4096) << "Batch size should be 4096";
-    EXPECT_EQ(STASH_CAPACITY, 5120) << "Stash capacity formula: 64 + 4096 + margin";
+    EXPECT_EQ(STASH_CAPACITY, 16384) << "Stash capacity formula: 4096 + 3*4096";
 }
 
 
