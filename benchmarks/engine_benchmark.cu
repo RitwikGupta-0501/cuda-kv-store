@@ -109,7 +109,11 @@ int main(int argc, char** argv) {
     std::vector<uint32_t> out_missing(NUM_MISSING_KEYS, 0);
     
     for (uint32_t i = 0; i < NUM_MISSING_KEYS; ++i) {
-        missing_keys[i] = dist(rng) + 0x80000000; 
+        uint32_t mk;
+        do {
+            mk = dist(rng) + 0x80000000;
+        } while (unique_keys.count(mk) > 0);
+        missing_keys[i] = mk;
     }
     
     uint32_t false_positives = 0;
