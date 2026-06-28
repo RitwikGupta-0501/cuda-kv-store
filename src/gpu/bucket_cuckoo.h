@@ -109,7 +109,7 @@ __host__ __device__ inline void bucket_clear_occupied(Bucket* bucket, int slot) 
 // ============================================================================
 
 // Maximum number of hops during insertion before key goes to stash
-static constexpr uint32_t MAX_EVICTION_HOPS = 32;
+static constexpr uint32_t MAX_EVICTION_HOPS = 128;
 
 // Backpressure threshold: triggers rehash when stash reaches this
 static constexpr uint32_t BACKPRESSURE_THRESHOLD = 4096;
