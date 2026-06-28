@@ -46,12 +46,13 @@ __device__ inline InsertResult warp_insert_device(
     // Eviction loop: current_key/value/fp get evicted and re-inserted up to MAX_EVICTION_HOPS times
     uint32_t current_key = key;
     uint32_t current_value = value;
-    uint8_t current_fp = fingerprint;
     uint32_t hop_count = 0;
 
     while (hop_count < MAX_EVICTION_HOPS) {
         // Compute buckets for the current key
         HashPair hash_pair = compute_hash_pair(current_key, table.bucket_mask);
+        uint8_t current_fp = hash_pair.fingerprint;
+        
         Bucket* bucket_b1 = &table.buckets[hash_pair.b1];
         Bucket* bucket_b2 = &table.buckets[hash_pair.b2];
 
@@ -151,7 +152,7 @@ __device__ inline InsertResult warp_insert_device(
             // Broadcast the evicted key and value to all lanes
             current_key = __shfl_sync(0xFFFFFFFFu, evicted_key, 0);
             current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
-            // current_fp remains unchanged! (fingerprint is invariant across evictions)
+            // current_fp will be recomputed at the start of the next hop
         }
         // If eviction failed, current_key/value/fp remain unchanged and we loop again
 

@@ -48,13 +48,14 @@ __device__ inline bool rehash_entry_device(
     // Eviction loop: rehash entry may require multiple hops if collisions occur
     uint32_t current_key = key;
     uint32_t current_value = value;
-    uint8_t current_fp = fingerprint;
     uint32_t hop_count = 0;
     bool inserted = false;
 
     while (hop_count < MAX_EVICTION_HOPS && !inserted) {
         // Recompute hash for new table (new bucket mask)
         HashPair hash_pair = compute_hash_pair(current_key, new_table.bucket_mask);
+        uint8_t current_fp = hash_pair.fingerprint;
+        
         Bucket* bucket_b1 = &new_table.buckets[hash_pair.b1];
         Bucket* bucket_b2 = &new_table.buckets[hash_pair.b2];
 
@@ -139,7 +140,7 @@ __device__ inline bool rehash_entry_device(
             // Broadcast evicted entry
             current_key = __shfl_sync(0xFFFFFFFFu, evicted_key, 0);
             current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
-            // current_fp remains unchanged
+            // current_fp will be recomputed at the start of the next hop
         }
         // If eviction failed, we retry next hop with same current_key
 
