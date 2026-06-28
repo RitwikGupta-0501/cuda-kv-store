@@ -70,15 +70,20 @@ void execute_rehash(
     }
 
     // ========== Stage 2: Drain stash queue ==========
-    // Each thread processes one stash entry
+    // Each warp processes one stash entry
     uint32_t stash_threads = 256;
-    uint32_t stash_blocks = (STASH_CAPACITY + stash_threads - 1) / stash_threads;
+    uint32_t warps_per_stash_block = stash_threads / 32;
+    uint32_t num_stash_warps = STASH_CAPACITY;
+    uint32_t stash_blocks = (num_stash_warps + warps_per_stash_block - 1) / warps_per_stash_block;
 
     drain_stash_kernel<<<stash_blocks, stash_threads, 0, stream>>>(
         ctx.new_table,
         ctx.d_stash,
         d_entries_drained
     );
+    
+    // Reset the stash head to 0 so the stash is empty and ready for new evictions
+    cudaMemsetAsync(&ctx.d_stash->head, 0, sizeof(uint32_t), stream);
 
     err = cudaGetLastError();
     if (err != cudaSuccess) {

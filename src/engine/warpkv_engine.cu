@@ -18,7 +18,10 @@ namespace warpkv {
 WarpKVEngine::WarpKVEngine() {}
 
 WarpKVEngine::~WarpKVEngine() {
-    stop_rehash_thread = true;
+    {
+        std::lock_guard<std::mutex> lock(rehash_mutex);
+        stop_rehash_thread = true;
+    }
     rehash_cv.notify_one();
     if (rehash_thread.joinable()) {
         rehash_thread.join();
@@ -208,8 +211,10 @@ void WarpKVEngine::build_graphs() {
 
 void WarpKVEngine::apply_backpressure() {
     if (__atomic_load_n(&h_stash_queue->needs_rehash, __ATOMIC_ACQUIRE) != 0) {
-        std::lock_guard<std::mutex> lock(rehash_mutex);
-        rehash_cv.notify_one();
+        if (!is_rehashing.load(std::memory_order_acquire)) {
+            std::lock_guard<std::mutex> lock(rehash_mutex);
+            rehash_cv.notify_one();
+        }
     }
 }
 
