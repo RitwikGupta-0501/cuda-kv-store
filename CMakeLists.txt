@@ -188,6 +188,21 @@ add_executable(gpu_synthetic_load_test
 target_link_libraries(gpu_synthetic_load_test CUDA::cudart)
 
 # ============================================================================
+# Python Bindings (Phase 7)
+# ============================================================================
+
+find_package(pybind11 REQUIRED)
+pybind11_add_module(warpkv
+    src/python/warpkv_binding.cpp
+    src/engine/warpkv_engine.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/warp_lookup.cu
+    src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
+)
+target_link_libraries(warpkv PRIVATE CUDA::cudart)
+
+# ============================================================================
 # Main Application (Phase 7+)
 # ============================================================================
 
