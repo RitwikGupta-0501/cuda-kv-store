@@ -65,23 +65,22 @@ WarpKVEngine::~WarpKVEngine() {
 }
 
 void WarpKVEngine::init(uint32_t num_buckets) {
-    // allocate double-buffered arenas
+    // allocate double-buffered arenas (structs on host)
     CUDA_CHECK(cudaHostAlloc(&epoch_table.arenas[0], sizeof(BucketTable), cudaHostAllocDefault));
     CUDA_CHECK(cudaHostAlloc(&epoch_table.arenas[1], sizeof(BucketTable), cudaHostAllocDefault));
     
+    // Only allocate bucket memory for the first epoch
     CUDA_CHECK(cudaMalloc(&epoch_table.arenas[0]->buckets, num_buckets * sizeof(Bucket)));
-    CUDA_CHECK(cudaMalloc(&epoch_table.arenas[1]->buckets, num_buckets * sizeof(Bucket)));
+    epoch_table.arenas[1]->buckets = nullptr;
     
-    for (int i = 0; i < 2; ++i) {
-        epoch_table.arenas[i]->num_buckets = num_buckets;
-        epoch_table.arenas[i]->bucket_mask = num_buckets - 1;
-        epoch_table.arenas[i]->load_factor_limit = num_buckets / 2;
-        CUDA_CHECK(cudaMemset(epoch_table.arenas[i]->buckets, 0, num_buckets * sizeof(Bucket)));
-    }
+    epoch_table.arenas[0]->num_buckets = num_buckets;
+    epoch_table.arenas[0]->bucket_mask = num_buckets - 1;
+    epoch_table.arenas[0]->load_factor_limit = num_buckets / 2;
+    CUDA_CHECK(cudaMemset(epoch_table.arenas[0]->buckets, 0, num_buckets * sizeof(Bucket)));
     
-    epoch_table.epoch.store(0);
-    epoch_table.readers[0].store(0);
-    epoch_table.readers[1].store(0);
+    epoch_table.epoch.store(0, std::memory_order_seq_cst);
+    epoch_table.readers[0].store(0, std::memory_order_seq_cst);
+    epoch_table.readers[1].store(0, std::memory_order_seq_cst);
     
     // allocate stash
     CUDA_CHECK(cudaHostAlloc(&h_stash_queue, sizeof(StashQueue), cudaHostAllocMapped));
@@ -217,19 +216,19 @@ void WarpKVEngine::apply_backpressure() {
 BucketTable* WarpKVEngine::acquire_table(uint64_t& out_epoch) {
     uint64_t e;
     while (true) {
-        e = epoch_table.epoch.load(std::memory_order_acquire);
-        epoch_table.readers[e & 1].fetch_add(1, std::memory_order_acquire);
-        if (e == epoch_table.epoch.load(std::memory_order_acquire)) {
+        e = epoch_table.epoch.load(std::memory_order_seq_cst);
+        epoch_table.readers[e & 1].fetch_add(1, std::memory_order_seq_cst);
+        if (e == epoch_table.epoch.load(std::memory_order_seq_cst)) {
             break;
         }
-        epoch_table.readers[e & 1].fetch_sub(1, std::memory_order_release);
+        epoch_table.readers[e & 1].fetch_sub(1, std::memory_order_seq_cst);
     }
     out_epoch = e;
     return epoch_table.arenas[e & 1];
 }
 
 void WarpKVEngine::release_table(uint64_t epoch) {
-    epoch_table.readers[epoch & 1].fetch_sub(1, std::memory_order_release);
+    epoch_table.readers[epoch & 1].fetch_sub(1, std::memory_order_seq_cst);
 }
 
 void WarpKVEngine::update_graph_nodes(int slot, BucketTable* current_tbl) {
@@ -258,9 +257,17 @@ void WarpKVEngine::rehash_worker() {
         
         is_rehashing.store(true, std::memory_order_release);
         
-        uint64_t old_epoch = epoch_table.epoch.load(std::memory_order_acquire);
+        uint64_t old_epoch = epoch_table.epoch.load(std::memory_order_seq_cst);
         BucketTable* old_tbl = epoch_table.arenas[old_epoch & 1];
         BucketTable* new_tbl = epoch_table.arenas[(old_epoch + 1) & 1];
+        
+        // Dynamically expand capacity by 2x
+        uint32_t new_num = old_tbl->num_buckets * 2;
+        new_tbl->num_buckets = new_num;
+        new_tbl->bucket_mask = new_num - 1;
+        new_tbl->load_factor_limit = new_num / 2;
+        CUDA_CHECK(cudaMalloc(&new_tbl->buckets, new_num * sizeof(Bucket)));
+        CUDA_CHECK(cudaMemsetAsync(new_tbl->buckets, 0, new_num * sizeof(Bucket), rehash_stream));
         
         RehashContext ctx;
         ctx.old_table = *old_tbl;
@@ -270,14 +277,15 @@ void WarpKVEngine::rehash_worker() {
         RehashStats stats;
         execute_rehash(ctx, &stats, rehash_stream);
         
-        epoch_table.epoch.store(old_epoch + 1, std::memory_order_release);
+        epoch_table.epoch.store(old_epoch + 1, std::memory_order_seq_cst);
         
-        while (epoch_table.readers[old_epoch & 1].load(std::memory_order_acquire) > 0) {
+        while (epoch_table.readers[old_epoch & 1].load(std::memory_order_seq_cst) > 0) {
             std::this_thread::yield();
         }
         
-        CUDA_CHECK(cudaMemsetAsync(old_tbl->buckets, 0, old_tbl->num_buckets * sizeof(Bucket), rehash_stream));
-        CUDA_CHECK(cudaStreamSynchronize(rehash_stream));
+        // Old table is fully drained, safe to free
+        CUDA_CHECK(cudaFree(old_tbl->buckets));
+        old_tbl->buckets = nullptr;
         
         __atomic_store_n(&h_stash_queue->needs_rehash, 0, __ATOMIC_RELEASE);
         
