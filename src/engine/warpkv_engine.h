@@ -76,8 +76,10 @@ private:
     std::atomic<uint32_t> active_inserts{0};
     cudaStream_t rehash_stream = nullptr;
     
-    StashQueue* h_stash_queue = nullptr;
     StashQueue* d_stash_queue = nullptr;
+    
+    uint32_t* h_needs_rehash_flag = nullptr;
+    uint32_t* d_needs_rehash_flag = nullptr;
     
 public:
     WarpKVEngine();
@@ -96,6 +98,12 @@ public:
     
     // Note: Looking up EMPTY_KEY will always return NOT_FOUND.
     void submit_lookup_batch(const uint32_t* keys, uint32_t* values_out, uint32_t count);
+    
+    void sync_all();
+    
+    // Callbacks for pipelining
+    void release_table_callback(uint64_t epoch);
+    void decrement_active_inserts();
     
 private:
     BucketTable* acquire_table(uint64_t& out_epoch);

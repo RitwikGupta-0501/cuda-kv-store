@@ -36,6 +36,7 @@ struct InsertResult {
 __device__ inline InsertResult warp_insert_device(
     BucketTable table,
     StashQueue* stash,
+    uint32_t* d_needs_rehash_flag,
     uint32_t key,
     uint32_t value,
     uint8_t fingerprint) {
@@ -196,11 +197,11 @@ __device__ inline InsertResult warp_insert_device(
             result.hops = hop_count;
             
             if (head >= BACKPRESSURE_THRESHOLD) {
-                atomicExch((uint32_t*)&stash->needs_rehash, 1u);
+                atomicExch((uint32_t*)d_needs_rehash_flag, 1u);
             }
         } else {
             // Stash overflow: set needs_rehash flag
-            atomicExch((uint32_t*)&stash->needs_rehash, 1u);
+            atomicExch((uint32_t*)d_needs_rehash_flag, 1u);
             result.status = INSERT_FAILED;
             result.hops = hop_count;
         }
@@ -217,6 +218,7 @@ __device__ inline InsertResult warp_insert_device(
 static __global__ void warp_insert_kernel(
     BucketTable table,
     StashQueue* stash,
+    uint32_t* d_needs_rehash_flag,
     const uint32_t* keys,
     const uint32_t* values,
     InsertStatus* statuses,
@@ -234,7 +236,7 @@ static __global__ void warp_insert_kernel(
     uint32_t value = values[key_idx];
     uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
 
-    InsertResult result = warp_insert_device(table, stash, key, value, fp);
+    InsertResult result = warp_insert_device(table, stash, d_needs_rehash_flag, key, value, fp);
 
     // Lane 0 writes result
     if ((threadIdx.x % 32) == 0) {
@@ -257,6 +259,7 @@ struct InsertBatch {
 void warp_insert_batch(
     BucketTable table,
     StashQueue* d_stash,
+    uint32_t* d_needs_rehash_flag,
     const InsertBatch& batch,
     cudaStream_t stream = nullptr);
 

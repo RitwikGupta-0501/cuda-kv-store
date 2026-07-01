@@ -66,9 +66,6 @@ struct StashQueue {
     // Next read position (incremented by CPU)
     uint32_t tail;
 
-    // Flag: set by GPU if stash overflows or needs rehash
-    uint32_t needs_rehash;
-
     // Stash entries: 32768 slots
     StashEntry entries[32768];
 };

@@ -20,6 +20,9 @@ protected:
         table_ = get_table0();
         stash_ = get_device_stash();
         
+        cudaMalloc(&d_needs_rehash_flag_, sizeof(uint32_t));
+        cudaMemset(d_needs_rehash_flag_, 0, sizeof(uint32_t));
+        
         // Clear table and stash
         cudaMemset(table_->buckets, 0, table_->num_buckets * sizeof(Bucket));
         cudaMemset(stash_, 0, sizeof(StashQueue));
@@ -27,6 +30,7 @@ protected:
 
     BucketTable* table_;
     StashQueue* stash_;
+    uint32_t* d_needs_rehash_flag_;
 };
 
 TEST_F(CuckooInsertTest, InsertIntoEmptyB1) {
@@ -42,7 +46,7 @@ TEST_F(CuckooInsertTest, InsertIntoEmptyB1) {
     batch.h_hops = hops;
     batch.num_keys = 1;
 
-    warp_insert_batch(*table_, stash_, batch);
+    warp_insert_batch(*table_, stash_, d_needs_rehash_flag_, batch);
 
     EXPECT_EQ(statuses[0], INSERT_SUCCESS) << "Should insert successfully";
     EXPECT_EQ(hops[0], 0) << "Should take 0 eviction hops";
@@ -79,7 +83,7 @@ TEST_F(CuckooInsertTest, MultipleInsertsSameBucket) {
     batch.h_hops = nullptr; // Optional
     batch.num_keys = num;
 
-    warp_insert_batch(*table_, stash_, batch);
+    warp_insert_batch(*table_, stash_, d_needs_rehash_flag_, batch);
 
     for (int i = 0; i < num; ++i) {
         EXPECT_EQ(statuses[i], INSERT_SUCCESS) << "Key " << i << " should insert successfully";

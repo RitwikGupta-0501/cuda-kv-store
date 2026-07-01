@@ -63,6 +63,11 @@ int main(int argc, char** argv) {
 
     BucketTable* d_table = get_table0();
     StashQueue* d_stash = get_device_stash();
+    
+    uint32_t* d_needs_rehash_flag;
+    CUDA_CHECK(cudaMalloc(&d_needs_rehash_flag, sizeof(uint32_t)));
+    CUDA_CHECK(cudaMemset(d_needs_rehash_flag, 0, sizeof(uint32_t)));
+    
     printf("  ✓ Tables and Stash allocated via Arena\n\n");
 
     // ========== Phase 2: Prepare test data ==========
@@ -111,7 +116,7 @@ int main(int argc, char** argv) {
         batch.h_hops = hops.data();
         batch.num_keys = current_batch_size;
         
-        warp_insert_batch(*d_table, d_stash, batch);
+        warp_insert_batch(*d_table, d_stash, d_needs_rehash_flag, batch);
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
             if (statuses[i] == INSERT_SUCCESS) {

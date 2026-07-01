@@ -8,6 +8,7 @@ namespace warpkv {
 void warp_insert_batch(
     BucketTable table,
     StashQueue* d_stash,
+    uint32_t* d_needs_rehash_flag,
     const InsertBatch& batch,
     cudaStream_t stream) {
 
@@ -35,7 +36,7 @@ void warp_insert_batch(
     uint32_t num_blocks = (batch.num_keys + keys_per_block - 1) / keys_per_block;
 
     warp_insert_kernel<<<num_blocks, threads_per_block, 0, stream>>>(
-        table, d_stash, d_keys, d_values, d_statuses, d_hops, batch.num_keys
+        table, d_stash, d_needs_rehash_flag, d_keys, d_values, d_statuses, d_hops, batch.num_keys
     );
 
     cudaMemcpyAsync(batch.h_statuses, d_statuses, statuses_size, cudaMemcpyDeviceToHost, stream);
