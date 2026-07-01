@@ -68,6 +68,7 @@ int main(int argc, char** argv) {
                    (offset / BATCH_SIZE) + 1, offset + count);
         }
     }
+    engine.sync_all();
     auto t_end = std::chrono::high_resolution_clock::now();
     double insert_sec = std::chrono::duration<double>(t_end - t_start).count();
     
@@ -86,6 +87,7 @@ int main(int argc, char** argv) {
         
         engine.submit_lookup_batch(&keys[offset], &out_values[offset], count);
     }
+    engine.sync_all();
     t_end = std::chrono::high_resolution_clock::now();
     double lookup_sec = std::chrono::duration<double>(t_end - t_start).count();
     
@@ -122,6 +124,7 @@ int main(int argc, char** argv) {
         uint32_t count = std::min((uint32_t)BATCH_SIZE, (uint32_t)(NUM_MISSING_KEYS - offset));
         engine.submit_lookup_batch(&missing_keys[offset], &out_missing[offset], count);
     }
+    engine.sync_all();
     t_end = std::chrono::high_resolution_clock::now();
     double neg_lookup_sec = std::chrono::duration<double>(t_end - t_start).count();
     

@@ -22,6 +22,9 @@ protected:
         new_table_ = get_table1();
         stash_ = get_device_stash();
         
+        cudaMalloc(&d_needs_rehash_flag_, sizeof(uint32_t));
+        cudaMemset(d_needs_rehash_flag_, 0, sizeof(uint32_t));
+        
         cudaMemset(old_table_->buckets, 0, old_table_->num_buckets * sizeof(Bucket));
         cudaMemset(new_table_->buckets, 0, new_table_->num_buckets * sizeof(Bucket));
         cudaMemset(stash_, 0, sizeof(StashQueue));
@@ -30,6 +33,7 @@ protected:
     BucketTable* old_table_;
     BucketTable* new_table_;
     StashQueue* stash_;
+    uint32_t* d_needs_rehash_flag_;
 };
 
 TEST_F(RehashKernelTest, RealRehashExecution) {
@@ -51,7 +55,7 @@ TEST_F(RehashKernelTest, RealRehashExecution) {
     batch.h_hops = nullptr;
     batch.num_keys = num_keys;
 
-    warp_insert_batch(*old_table_, stash_, batch);
+    warp_insert_batch(*old_table_, stash_, d_needs_rehash_flag_, batch);
 
     // 2. Put a couple of entries manually in the stash to test stash drain
     StashQueue h_stash;

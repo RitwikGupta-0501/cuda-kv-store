@@ -21,6 +21,9 @@ protected:
         table_ = get_table0();
         stash_ = get_device_stash();
         
+        cudaMalloc(&d_needs_rehash_flag_, sizeof(uint32_t));
+        cudaMemset(d_needs_rehash_flag_, 0, sizeof(uint32_t));
+        
         // Clear table and stash
         cudaMemset(table_->buckets, 0, table_->num_buckets * sizeof(Bucket));
         cudaMemset(stash_, 0, sizeof(StashQueue));
@@ -28,6 +31,7 @@ protected:
 
     BucketTable* table_;
     StashQueue* stash_;
+    uint32_t* d_needs_rehash_flag_;
 };
 
 TEST_F(EvictionChainTest, ForceEvictionToStash) {
@@ -91,7 +95,7 @@ TEST_F(EvictionChainTest, ForceEvictionToStash) {
     batch.h_hops = hops;
     batch.num_keys = 1;
 
-    warp_insert_batch(*table_, stash_, batch);
+    warp_insert_batch(*table_, stash_, d_needs_rehash_flag_, batch);
 
     // The key should eventually settle (either in b1 after evicting something, or in b2 if the victim settles)
     // The key status must be either SUCCESS or STASHED, but the hops must be > 0.
