@@ -7,38 +7,6 @@
 
 namespace warpkv {
 
-struct EpochReleaseCtx {
-    WarpKVEngine* engine;
-    uint64_t epoch;
-    bool is_insert;
-};
-
-void CUDART_CB release_epoch_callback(void* userData) {
-    auto* ctx = static_cast<EpochReleaseCtx*>(userData);
-    ctx->engine->release_table_callback(ctx->epoch);
-    if (ctx->is_insert) {
-        ctx->engine->decrement_active_inserts();
-    }
-    delete ctx;
-}
-
-struct LookupCallbackCtx {
-    WarpKVEngine* engine;
-    uint64_t epoch;
-    uint32_t* dst_values;
-    uint32_t* src_values;
-    uint32_t count;
-};
-
-void CUDART_CB lookup_callback(void* userData) {
-    auto* ctx = static_cast<LookupCallbackCtx*>(userData);
-    if (ctx->dst_values) {
-        std::memcpy(ctx->dst_values, ctx->src_values, ctx->count * sizeof(uint32_t));
-    }
-    ctx->engine->release_table_callback(ctx->epoch);
-    delete ctx;
-}
-
 #define CUDA_CHECK(call) \
     do { \
         cudaError_t err = call; \
@@ -400,9 +368,10 @@ void WarpKVEngine::submit_insert_batch(const uint32_t* keys, const uint32_t* val
     }
     
     CUDA_CHECK(cudaGraphLaunch(insert_graphs[slot], streams[slot].h2d));
+    CUDA_CHECK(cudaStreamSynchronize(streams[slot].h2d));
     
-    auto* ctx = new EpochReleaseCtx{this, epoch, true};
-    CUDA_CHECK(cudaLaunchHostFunc(streams[slot].h2d, release_epoch_callback, ctx));
+    release_table(epoch);
+    active_inserts.fetch_sub(1, std::memory_order_seq_cst);
 }
 
 void WarpKVEngine::submit_lookup_batch(const uint32_t* keys, uint32_t* values_out, uint32_t count) {
@@ -437,9 +406,11 @@ void WarpKVEngine::submit_lookup_batch(const uint32_t* keys, uint32_t* values_ou
     }
     
     CUDA_CHECK(cudaGraphLaunch(lookup_graphs[slot], streams[slot].h2d));
+    CUDA_CHECK(cudaStreamSynchronize(streams[slot].h2d));
     
-    auto* ctx = new LookupCallbackCtx{this, epoch, values_out, h_values_out[slot], count};
-    CUDA_CHECK(cudaLaunchHostFunc(streams[slot].h2d, lookup_callback, ctx));
+    std::memcpy(values_out, h_values_out[slot], count * sizeof(uint32_t));
+    
+    release_table(epoch);
 }
 
 void WarpKVEngine::sync_all() {
@@ -447,14 +418,6 @@ void WarpKVEngine::sync_all() {
         std::lock_guard<std::mutex> lock(slot_mutex[i]);
         CUDA_CHECK(cudaStreamSynchronize(streams[i].h2d));
     }
-}
-
-void WarpKVEngine::release_table_callback(uint64_t epoch) {
-    release_table(epoch);
-}
-
-void WarpKVEngine::decrement_active_inserts() {
-    active_inserts.fetch_sub(1, std::memory_order_seq_cst);
 }
 
 } // namespace warpkv
