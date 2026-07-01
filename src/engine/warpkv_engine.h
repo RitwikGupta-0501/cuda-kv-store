@@ -101,10 +101,6 @@ public:
     
     void sync_all();
     
-    // Callbacks for pipelining
-    void release_table_callback(uint64_t epoch);
-    void decrement_active_inserts();
-    
 private:
     BucketTable* acquire_table(uint64_t& out_epoch);
     void release_table(uint64_t epoch);
