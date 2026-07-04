@@ -218,6 +218,7 @@ void WarpKVEngine::build_graphs() {
 }
 
 void WarpKVEngine::apply_backpressure() {
+    if (auto_rehash_disabled) return;
     if (__atomic_load_n(h_needs_rehash_flag, __ATOMIC_ACQUIRE) != 0) {
         if (!is_rehashing.load(std::memory_order_acquire)) {
             std::lock_guard<std::mutex> lock(rehash_mutex);
@@ -331,6 +332,11 @@ void WarpKVEngine::submit_insert_batch(const uint32_t* keys, const uint32_t* val
     }
     
     while (true) {
+        if (auto_rehash_disabled) {
+            active_inserts.fetch_add(1, std::memory_order_seq_cst);
+            break;
+        }
+        
         while (__atomic_load_n(h_needs_rehash_flag, __ATOMIC_ACQUIRE) != 0 || is_rehashing.load(std::memory_order_acquire)) {
             apply_backpressure();
             std::this_thread::yield();

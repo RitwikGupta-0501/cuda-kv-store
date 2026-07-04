@@ -68,6 +68,7 @@ private:
     
     // Table and EBR
     EpochTable epoch_table;
+    bool auto_rehash_disabled = false;
     std::atomic<bool> is_rehashing{false};
     std::thread rehash_thread;
     std::mutex rehash_mutex;
@@ -100,6 +101,9 @@ public:
     void submit_lookup_batch(const uint32_t* keys, uint32_t* values_out, uint32_t count);
     
     void sync_all();
+    
+    // Config
+    void disable_automatic_rehash(bool disable) { auto_rehash_disabled = disable; }
     
 private:
     BucketTable* acquire_table(uint64_t& out_epoch);

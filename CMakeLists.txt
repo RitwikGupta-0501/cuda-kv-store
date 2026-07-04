@@ -183,6 +183,30 @@ add_executable(engine_benchmark
 )
 target_link_libraries(engine_benchmark CUDA::cudart)
 
+# Phase 9: YCSB Benchmark
+add_executable(ycsb_benchmark
+    benchmarks/ycsb_benchmark.cu
+    src/engine/warpkv_engine.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/warp_lookup.cu
+    src/gpu/rehash_kernel.cu
+    src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
+)
+target_link_libraries(ycsb_benchmark CUDA::cudart)
+
+# Phase 9: Load Factor Benchmark
+add_executable(load_factor_benchmark
+    benchmarks/load_factor_benchmark.cu
+    src/engine/warpkv_engine.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/warp_lookup.cu
+    src/gpu/rehash_kernel.cu
+    src/gpu/xxhash3.cu
+    src/gpu/arena_allocator.cu
+)
+target_link_libraries(load_factor_benchmark CUDA::cudart)
+
 # Deprecated (CPU version from Phase 0)simulation (quick validation)
 add_executable(synthetic_load_test
     benchmarks/synthetic_load_test.cu
