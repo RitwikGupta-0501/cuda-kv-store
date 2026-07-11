@@ -240,6 +240,7 @@ static __global__ void drain_stash_kernel(
 
     // Read stash size (from old head before it was reset)
     uint32_t stash_size = atomicAdd((uint32_t*)&stash->head, 0);
+    if (stash_size > STASH_CAPACITY) stash_size = STASH_CAPACITY;
     if (entry_idx >= stash_size) return;
 
     StashEntry entry = stash->entries[entry_idx];

@@ -81,8 +81,9 @@ __device__ inline LookupResult warp_lookup_device(
 
     // ========== Not found in buckets: Scan Stash ==========
     if (stash != nullptr) {
-        // Read current size of stash
+        // Read current size of stash (bounded by capacity to prevent OOB reads during overflow)
         uint32_t stash_size = ((volatile uint32_t*)&stash->head)[0];
+        if (stash_size > STASH_CAPACITY) stash_size = STASH_CAPACITY;
         
         // Warp cooperatively scans the stash
         for (uint32_t i = lane_id; i < stash_size; i += 32) {
