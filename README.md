@@ -35,6 +35,8 @@ A built-in stress test that disables automatic rehashing to demonstrate Cuckoo H
 | 50%           | 15.19             | 18.62             | 638 (Stash Overflow) |
 | 90%           | 2.08              | 15.58             | ~5.8 Million |
 
+![Load Factor Degradation Curve](docs/benchmark_graph.png)
+
 *Note: WarpKV dynamically prevents data loss by automatically rehashing at exactly 50% capacity.*
 
 ## 🛠️ Build & Installation
