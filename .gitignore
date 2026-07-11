@@ -79,3 +79,4 @@ nsight-*/
 # Backup files
 *.bak
 *.backup
+.claude/
