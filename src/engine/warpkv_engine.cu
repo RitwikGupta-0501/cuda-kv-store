@@ -55,8 +55,10 @@ WarpKVEngine::~WarpKVEngine() {
         
         if (insert_graphs[i]) cudaGraphExecDestroy(insert_graphs[i]);
         if (lookup_graphs[i]) cudaGraphExecDestroy(lookup_graphs[i]);
+        if (delete_graphs[i]) cudaGraphExecDestroy(delete_graphs[i]);
         if (template_insert_graphs[i]) cudaGraphDestroy(template_insert_graphs[i]);
         if (template_lookup_graphs[i]) cudaGraphDestroy(template_lookup_graphs[i]);
+        if (template_delete_graphs[i]) cudaGraphDestroy(template_delete_graphs[i]);
         
         if (h_keys_in[i]) cudaFreeHost(h_keys_in[i]);
         if (h_values_in[i]) cudaFreeHost(h_values_in[i]);
@@ -214,6 +216,46 @@ void WarpKVEngine::build_graphs() {
         
         CUDA_CHECK(cudaGraphInstantiate(&lookup_graphs[slot], lookup_graph, nullptr, nullptr, 0));
         template_lookup_graphs[slot] = lookup_graph;
+
+        // ================= DELETE GRAPH =================
+        CUDA_CHECK(cudaStreamBeginCapture(streams[slot].h2d, cudaStreamCaptureModeGlobal));
+        
+        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], BATCH_SIZE * sizeof(uint32_t), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaEventRecord(ev_h2d[slot], streams[slot].h2d));
+        
+        CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
+        
+        // We reuse d_lookup_found to hold the delete success flags
+        warp_delete_kernel<<<grid, block, 0, streams[slot].compute>>>(
+            epoch_table.arenas[0][0], d_stash_queue, d_keys_in[slot], d_lookup_found[slot], BATCH_SIZE
+        );
+        
+        CUDA_CHECK(cudaEventRecord(ev_compute[slot], streams[slot].compute));
+        
+        CUDA_CHECK(cudaStreamWaitEvent(streams[slot].d2h, ev_compute[slot], 0));
+        CUDA_CHECK(cudaMemcpyAsync(h_lookup_found[slot], d_lookup_found[slot], BATCH_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost, streams[slot].d2h));
+        CUDA_CHECK(cudaEventRecord(ev_d2h[slot], streams[slot].d2h));
+        
+        CUDA_CHECK(cudaStreamWaitEvent(streams[slot].h2d, ev_d2h[slot], 0)); // JOIN
+        
+        cudaGraph_t delete_graph;
+        CUDA_CHECK(cudaStreamEndCapture(streams[slot].h2d, &delete_graph));
+        
+        numNodes = 0;
+        CUDA_CHECK(cudaGraphGetNodes(delete_graph, nullptr, &numNodes));
+        nodes.resize(numNodes);
+        CUDA_CHECK(cudaGraphGetNodes(delete_graph, nodes.data(), &numNodes));
+        for (size_t i = 0; i < numNodes; ++i) {
+            cudaGraphNodeType type;
+            CUDA_CHECK(cudaGraphNodeGetType(nodes[i], &type));
+            if (type == cudaGraphNodeTypeKernel) {
+                delete_nodes[slot] = nodes[i];
+                break;
+            }
+        }
+        
+        CUDA_CHECK(cudaGraphInstantiate(&delete_graphs[slot], delete_graph, nullptr, nullptr, 0));
+        template_delete_graphs[slot] = delete_graph;
     }
 }
 
@@ -270,6 +312,16 @@ void WarpKVEngine::update_graph_nodes(int slot, BucketTable* current_tbl) {
     insert_node_params.kernelParams = insert_args;
     insert_node_params.extra = nullptr;
     CUDA_CHECK(cudaGraphExecKernelNodeSetParams(insert_graphs[slot], insert_nodes[slot], &insert_node_params));
+
+    void* delete_args[] = { current_tbl, &d_stash_queue, &d_keys_in[slot], &d_lookup_found[slot], &batch_size };
+    cudaKernelNodeParams delete_node_params = {0};
+    delete_node_params.func = (void*)warp_delete_kernel;
+    delete_node_params.gridDim = grid;
+    delete_node_params.blockDim = block;
+    delete_node_params.sharedMemBytes = 0;
+    delete_node_params.kernelParams = delete_args;
+    delete_node_params.extra = nullptr;
+    CUDA_CHECK(cudaGraphExecKernelNodeSetParams(delete_graphs[slot], delete_nodes[slot], &delete_node_params));
 }
 
 void WarpKVEngine::rehash_worker() {
@@ -311,13 +363,28 @@ void WarpKVEngine::rehash_worker() {
         
         epoch_table.epoch.store(old_epoch + 1, std::memory_order_seq_cst);
         
+        // Wait for all in-flight readers on the old epoch to drain before freeing.
         while (epoch_table.readers[old_epoch & 1].load(std::memory_order_seq_cst) > 0) {
             std::this_thread::yield();
         }
         
+        // Lock ALL slot mutexes before freeing old buckets and updating graphs.
+        // This closes the race window where a submit could acquire the table pointer,
+        // then we free the backing memory, then the submit launches with stale pointers.
+        for (int i = 0; i < NUM_SLOTS; ++i) slot_mutex[i].lock();
+        
         // Old table is fully drained, safe to free
         CUDA_CHECK(cudaFree(old_tbl->buckets));
         old_tbl->buckets = nullptr;
+        
+        // Pre-patch ALL graph nodes to point to the new table while holding all locks.
+        // This guarantees no slot can launch the old graph after we release.
+        for (int i = 0; i < NUM_SLOTS; ++i) {
+            update_graph_nodes(i, new_tbl);
+            active_epoch[i] = old_epoch + 1;
+        }
+        
+        for (int i = 0; i < NUM_SLOTS; ++i) slot_mutex[i].unlock();
         
         __atomic_store_n(h_needs_rehash_flag, 0, __ATOMIC_RELEASE);
         
@@ -415,6 +482,43 @@ void WarpKVEngine::submit_lookup_batch(const uint32_t* keys, uint32_t* values_ou
     CUDA_CHECK(cudaStreamSynchronize(streams[slot].h2d));
     
     std::memcpy(values_out, h_values_out[slot], count * sizeof(uint32_t));
+    
+    release_table(epoch);
+}
+
+void WarpKVEngine::submit_delete_batch(const uint32_t* keys, uint32_t count) {
+    if (count == 0) return;
+    if (count > BATCH_SIZE) {
+        throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
+    }
+    
+    apply_backpressure();
+    
+    int slot = current_slot.fetch_add(1, std::memory_order_relaxed) % NUM_SLOTS;
+    std::lock_guard<std::mutex> lock(slot_mutex[slot]);
+    
+    // Ensure previous batch on this slot is complete before overwriting host buffers
+    CUDA_CHECK(cudaStreamSynchronize(streams[slot].h2d));
+    
+    apply_backpressure();
+    
+    uint64_t epoch;
+    BucketTable* current_tbl = acquire_table(epoch);
+    if (active_epoch[slot] != epoch) {
+        update_graph_nodes(slot, current_tbl);
+        active_epoch[slot] = epoch;
+    }
+    
+    std::memcpy(h_keys_in[slot], keys, count * sizeof(uint32_t));
+    
+    if (count < BATCH_SIZE) {
+        for (uint32_t i = count; i < BATCH_SIZE; ++i) {
+            h_keys_in[slot][i] = EMPTY_KEY;
+        }
+    }
+    
+    CUDA_CHECK(cudaGraphLaunch(delete_graphs[slot], streams[slot].h2d));
+    CUDA_CHECK(cudaStreamSynchronize(streams[slot].h2d));
     
     release_table(epoch);
 }

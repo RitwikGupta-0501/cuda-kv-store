@@ -87,11 +87,12 @@ fi
 
 # Test mapping
 declare -A TESTS
-TESTS[1]="test_xxhash3"
-TESTS[2]="test_bucket_layout test_arena_allocator"
-TESTS[3]="test_warp_lookup"
+TESTS[1]="test_hash_function"
+TESTS[2]="test_bucket_layout"
+TESTS[3]="test_warp_lookup test_lookup_correctness"
 TESTS[4]="test_cuckoo_insert test_eviction_chains"
 TESTS[5]="test_rehash_kernel"
+TESTS[6]="test_engine_concurrent"
 
 # Run tests
 echo "[3/4] Running tests..."
@@ -134,19 +135,19 @@ run_test() {
 
 case "$PHASE" in
     all)
-        for phase in 1 2 3 4 5; do
+        for phase in 1 2 3 4 5 6; do
             for test in ${TESTS[$phase]}; do
                 run_test "$test"
             done
         done
         ;;
-    1|2|3|4|5)
+    1|2|3|4|5|6)
         for test in ${TESTS[$PHASE]}; do
             run_test "$test"
         done
         ;;
     *)
-        echo "ERROR: Unknown phase '$PHASE'. Use: all, 1, 2, 3, 4, 5"
+        echo "ERROR: Unknown phase '$PHASE'. Use: all, 1, 2, 3, 4, 5, 6"
         exit 1
         ;;
 esac

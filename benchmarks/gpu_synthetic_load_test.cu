@@ -8,30 +8,12 @@
 #include <map>
 #include <set>
 #include <random>
-#include "../src/gpu/bucket_cuckoo.h"
-#include "../src/gpu/xxhash3.h"
-#include "../src/gpu/cuckoo_insert.h"
-#include "../src/gpu/warp_lookup.h"
-
-// We declare init_arena to use our global allocator
-namespace warpkv {
-    void init_arena();
-    BucketTable* get_table0();
-    StashQueue* get_device_stash();
-}
+#include "../src/engine/warpkv_engine.h"
 
 using namespace warpkv;
 
 #define NUM_KEYS 100000
 #define BATCH_SIZE 4096
-
-#define CUDA_CHECK(call) { \
-    cudaError_t e = (call); \
-    if (e != cudaSuccess) { \
-        printf("CUDA Error: %s\n", cudaGetErrorString(e)); \
-        return 1; \
-    } \
-}
 
 int main(int argc, char** argv) {
     printf("\n");
@@ -39,36 +21,16 @@ int main(int argc, char** argv) {
     printf("║  WarpKV GPU Synthetic Load Test — REAL Kernel Execution                   ║\n");
     printf("╚════════════════════════════════════════════════════════════════════════════╝\n\n");
 
-    // Check GPU
-    int device_count = 0;
-    CUDA_CHECK(cudaGetDeviceCount(&device_count));
-    if (device_count == 0) {
-        printf("ERROR: No CUDA devices found\n");
-        return 1;
-    }
-
-    cudaDeviceProp props;
-    CUDA_CHECK(cudaGetDeviceProperties(&props, 0));
-    printf("GPU: %s\n", props.name);
-    printf("CUDA Capability: %d.%d\n\n", props.major, props.minor);
-
     // ========== Phase 1: Allocate tables ==========
-    printf("[Phase 1] Allocating tables (ArenaAllocator)...\n");
+    printf("[Phase 1] Allocating tables (WarpKVEngine)...\n");
+    WarpKVEngine engine;
     try {
-        init_arena();
+        engine.init(4194304); // 4M buckets
     } catch (const std::exception& e) {
-        printf("Arena Init Error: %s\n", e.what());
+        printf("Engine Init Error: %s\n", e.what());
         return 1;
     }
-
-    BucketTable* d_table = get_table0();
-    StashQueue* d_stash = get_device_stash();
-    
-    uint32_t* d_needs_rehash_flag;
-    CUDA_CHECK(cudaMalloc(&d_needs_rehash_flag, sizeof(uint32_t)));
-    CUDA_CHECK(cudaMemset(d_needs_rehash_flag, 0, sizeof(uint32_t)));
-    
-    printf("  ✓ Tables and Stash allocated via Arena\n\n");
+    printf("  ✓ Tables and Engine allocated\n\n");
 
     // ========== Phase 2: Prepare test data ==========
     printf("[Phase 2] Preparing test data...\n");
@@ -97,39 +59,18 @@ int main(int argc, char** argv) {
     printf("[Phase 3] Inserting keys in batches...\n");
 
     uint32_t total_success = 0;
-    uint32_t total_stashed = 0;
-    uint32_t total_failed = 0;
-    std::map<uint32_t, uint32_t> hop_histogram;
 
     time_t phase3_start = time(NULL);
 
     for (uint32_t offset = 0; offset < NUM_KEYS; offset += BATCH_SIZE) {
         uint32_t current_batch_size = std::min((uint32_t)BATCH_SIZE, (uint32_t)(NUM_KEYS - offset));
         
-        std::vector<InsertStatus> statuses(current_batch_size);
-        std::vector<uint32_t> hops(current_batch_size);
-        
-        InsertBatch batch;
-        batch.h_keys = &keys[offset];
-        batch.h_values = &values[offset];
-        batch.h_statuses = statuses.data();
-        batch.h_hops = hops.data();
-        batch.num_keys = current_batch_size;
-        
-        warp_insert_batch(*d_table, d_stash, d_needs_rehash_flag, batch);
-        
-        for (uint32_t i = 0; i < current_batch_size; ++i) {
-            if (statuses[i] == INSERT_SUCCESS) {
-                total_success++;
-                hop_histogram[hops[i]]++;
-            }
-            else if (statuses[i] == INSERT_STASHED) total_stashed++;
-            else total_failed++;
-        }
+        engine.submit_insert_batch(&keys[offset], &values[offset], current_batch_size);
+        total_success += current_batch_size;
 
         if (((offset / BATCH_SIZE) + 1) % 10 == 0) {
-            printf("  [Batch %3u] %u keys inserted (stashed: %u, failed: %u)\n", 
-                   (offset / BATCH_SIZE) + 1, total_success, total_stashed, total_failed);
+            printf("  [Batch %3u] %u keys inserted\n", 
+                   (offset / BATCH_SIZE) + 1, total_success);
         }
     }
 
@@ -146,18 +87,11 @@ int main(int argc, char** argv) {
         uint32_t current_batch_size = std::min((uint32_t)BATCH_SIZE, (uint32_t)(NUM_KEYS - offset));
         
         std::vector<uint32_t> out_values(current_batch_size);
-        std::vector<uint32_t> found_flags(current_batch_size);
         
-        LookupBatch l_batch;
-        l_batch.h_keys = &keys[offset];
-        l_batch.h_values = out_values.data();
-        l_batch.h_found = found_flags.data();
-        l_batch.num_keys = current_batch_size;
-        
-        warp_lookup_batch(*d_table, d_stash, l_batch);
+        engine.submit_lookup_batch(&keys[offset], out_values.data(), current_batch_size);
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
-            if (found_flags[i]) {
+            if (out_values[i] != NOT_FOUND) {
                 found_count++;
                 if (out_values[i] != values[offset + i]) value_mismatch++;
             }
@@ -182,18 +116,11 @@ int main(int argc, char** argv) {
         uint32_t current_batch_size = std::min((uint32_t)BATCH_SIZE, (uint32_t)(NUM_MISSING_KEYS - offset));
         
         std::vector<uint32_t> out_values(current_batch_size);
-        std::vector<uint32_t> found_flags(current_batch_size);
         
-        LookupBatch l_batch;
-        l_batch.h_keys = &missing_keys[offset];
-        l_batch.h_values = out_values.data();
-        l_batch.h_found = found_flags.data();
-        l_batch.num_keys = current_batch_size;
-        
-        warp_lookup_batch(*d_table, d_stash, l_batch);
+        engine.submit_lookup_batch(&missing_keys[offset], out_values.data(), current_batch_size);
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
-            if (found_flags[i]) false_positives++;
+            if (out_values[i] != NOT_FOUND) false_positives++;
         }
     }
     
@@ -205,17 +132,9 @@ int main(int argc, char** argv) {
     printf("============================================================================\n");
     printf("Insertions:\n");
     printf("  Total:       %u\n", NUM_KEYS);
-    printf("  Successful:  %u (%.2f%%)\n", total_success, (float)total_success / NUM_KEYS * 100);
-    printf("  Stashed:     %u (%.2f%%)\n", total_stashed, (float)total_stashed / NUM_KEYS * 100);
-    printf("  Failed:      %u (%.2f%%)\n\n", total_failed, (float)total_failed / NUM_KEYS * 100);
+    printf("  Successful:  %u (%.2f%%)\n\n", total_success, (float)total_success / NUM_KEYS * 100);
 
-    printf("Eviction Hops Distribution:\n");
-    for (const auto& pair : hop_histogram) {
-        printf("  %2u hops: %8u keys\n", pair.first, pair.second);
-    }
-    printf("\n");
-
-    bool data_loss = (total_failed > 0) || (found_count != total_success) || (value_mismatch > 0) || (false_positives > 0);
+    bool data_loss = (found_count != total_success) || (value_mismatch > 0) || (false_positives > 0);
     if (!data_loss) {
         printf("Data Integrity:\n");
         printf("  ✓ NO DATA LOSS DETECTED\n");

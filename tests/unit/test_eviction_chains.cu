@@ -95,7 +95,7 @@ TEST_F(EvictionChainTest, ForceEvictionToStash) {
     batch.h_hops = hops;
     batch.num_keys = 1;
 
-    warp_insert_batch(*table_, stash_, d_needs_rehash_flag_, batch);
+    warp_insert_batch_sync(*table_, stash_, d_needs_rehash_flag_, batch);
 
     // The key should eventually settle (either in b1 after evicting something, or in b2 if the victim settles)
     // The key status must be either SUCCESS or STASHED, but the hops must be > 0.
@@ -113,7 +113,7 @@ TEST_F(EvictionChainTest, ForceEvictionToStash) {
     l_batch.h_found = found_out;
     l_batch.num_keys = 1;
 
-    warp_lookup_batch(*table_, nullptr, l_batch);
+    warp_lookup_batch_sync(*table_, nullptr, l_batch);
 
     EXPECT_EQ(found_out[0], 1) << "Eviction chain must not lose the inserted key";
     EXPECT_EQ(values_out[0], value_to_insert) << "Value must match";

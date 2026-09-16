@@ -1,6 +1,6 @@
 #pragma once
 
-#include "xxhash3.h"
+#include "hash.h"
 #include "bucket_cuckoo.h"
 #include <cuda_runtime.h>
 
@@ -64,8 +64,8 @@ __device__ inline InsertResult warp_insert_device(
             uint32_t slot = lane_id;
             uint32_t old_mask = bucket_b1->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                uint32_t old_key = atomicCAS(&bucket_b1->keys[slot], 0, 0xFFFFFFFF);
-                if (old_key == 0) b1_claimed = true;
+                uint32_t old_key = atomicCAS(&bucket_b1->keys[slot], EMPTY_KEY, LOCK_SENTINEL);
+                if (old_key == EMPTY_KEY) b1_claimed = true;
             }
         }
         
@@ -83,7 +83,7 @@ __device__ inline InsertResult warp_insert_device(
                 result.slot_used = slot;
                 result.hops = hop_count;
             } else {
-                bucket_b1->keys[slot] = 0; // Release unused locks
+                bucket_b1->keys[slot] = EMPTY_KEY; // Release unused locks
             }
         }
 
@@ -102,8 +102,8 @@ __device__ inline InsertResult warp_insert_device(
             uint32_t slot = lane_id - 8;
             uint32_t old_mask = bucket_b2->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                uint32_t old_key = atomicCAS(&bucket_b2->keys[slot], 0, 0xFFFFFFFF);
-                if (old_key == 0) b2_claimed = true;
+                uint32_t old_key = atomicCAS(&bucket_b2->keys[slot], EMPTY_KEY, LOCK_SENTINEL);
+                if (old_key == EMPTY_KEY) b2_claimed = true;
             }
         }
         
@@ -121,7 +121,7 @@ __device__ inline InsertResult warp_insert_device(
                 result.slot_used = slot;
                 result.hops = hop_count;
             } else {
-                bucket_b2->keys[slot] = 0; // Release unused locks
+                bucket_b2->keys[slot] = EMPTY_KEY; // Release unused locks
             }
         }
 
@@ -149,9 +149,9 @@ __device__ inline InsertResult warp_insert_device(
             // Read the victim's key
             uint32_t victim_key = victim_bucket->keys[victim_slot];
 
-            if (victim_key != 0 && victim_key != 0xFFFFFFFF) {
+            if (victim_key != EMPTY_KEY && victim_key != LOCK_SENTINEL) {
                 // Attempt to lock victim slot
-                uint32_t old_key = atomicCAS(&victim_bucket->keys[victim_slot], victim_key, 0xFFFFFFFF);
+                uint32_t old_key = atomicCAS(&victim_bucket->keys[victim_slot], victim_key, LOCK_SENTINEL);
 
                 if (old_key == victim_key) {
                     // Lock acquired! Safe to read value and overwrite
@@ -200,7 +200,7 @@ __device__ inline InsertResult warp_insert_device(
                 atomicExch((uint32_t*)d_needs_rehash_flag, 1u);
             }
         } else {
-            // Stash overflow: set needs_rehash flag
+            // Stash overflow — all 32768 slots consumed. Signal urgent rehash.
             atomicExch((uint32_t*)d_needs_rehash_flag, 1u);
             result.status = INSERT_FAILED;
             result.hops = hop_count;
@@ -231,7 +231,7 @@ static __global__ void warp_insert_kernel(
     if (key_idx >= num_keys) return;
 
     uint32_t key = keys[key_idx];
-    if (key == EMPTY_KEY) return;
+    if (key == EMPTY_KEY) return;  // Key 0 is reserved and cannot be inserted
     
     uint32_t value = values[key_idx];
     uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
@@ -255,8 +255,11 @@ struct InsertBatch {
     uint32_t num_keys;
 };
 
-// Launch insertion kernel for a batch of keys
-void warp_insert_batch(
+// Launch insertion kernel for a batch of keys (Synchronous/Test Wrapper)
+// Note: This wrapper performs internal cudaMalloc/cudaFree per call.
+// It is intended for unit tests. Production code (WarpKVEngine) uses
+// CUDA Graphs with pre-allocated device buffers instead.
+void warp_insert_batch_sync(
     BucketTable table,
     StashQueue* d_stash,
     uint32_t* d_needs_rehash_flag,

@@ -56,10 +56,13 @@ private:
     // Graphs
     cudaGraphExec_t lookup_graphs[NUM_SLOTS] = {nullptr};
     cudaGraphExec_t insert_graphs[NUM_SLOTS] = {nullptr};
+    cudaGraphExec_t delete_graphs[NUM_SLOTS] = {nullptr};
     cudaGraphNode_t lookup_nodes[NUM_SLOTS] = {nullptr};
     cudaGraphNode_t insert_nodes[NUM_SLOTS] = {nullptr};
+    cudaGraphNode_t delete_nodes[NUM_SLOTS] = {nullptr};
     cudaGraph_t template_insert_graphs[NUM_SLOTS] = {nullptr};
     cudaGraph_t template_lookup_graphs[NUM_SLOTS] = {nullptr};
+    cudaGraph_t template_delete_graphs[NUM_SLOTS] = {nullptr};
     uint64_t active_epoch[NUM_SLOTS] = {0, 0, 0};
     
     // Concurrency control
@@ -93,12 +96,15 @@ public:
     void init(uint32_t num_buckets);
     void build_graphs();
     
-    // Note: 0xFFFFFFFFu (EMPTY_KEY) is a reserved forbidden key.
+    // Note: Key 0 (EMPTY_KEY) is a reserved forbidden key.
     // Inserting EMPTY_KEY will be silently ignored.
     void submit_insert_batch(const uint32_t* keys, const uint32_t* values, uint32_t count);
     
     // Note: Looking up EMPTY_KEY will always return NOT_FOUND.
     void submit_lookup_batch(const uint32_t* keys, uint32_t* values_out, uint32_t count);
+
+    // Note: Deleting EMPTY_KEY will be silently ignored.
+    void submit_delete_batch(const uint32_t* keys, uint32_t count);
     
     void sync_all();
     

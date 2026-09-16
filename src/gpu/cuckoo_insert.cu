@@ -4,8 +4,7 @@
 
 namespace warpkv {
 
-// Host-side wrapper: allocate temporary buffers and launch kernel
-void warp_insert_batch(
+void warp_insert_batch_sync(
     BucketTable table,
     StashQueue* d_stash,
     uint32_t* d_needs_rehash_flag,
@@ -44,7 +43,12 @@ void warp_insert_batch(
         cudaMemcpyAsync(batch.h_hops, d_hops, hops_size, cudaMemcpyDeviceToHost, stream);
     }
 
-    if (stream == nullptr) cudaDeviceSynchronize();
+    // Must sync before freeing — async ops on the stream are still in flight.
+    if (stream != nullptr) {
+        cudaStreamSynchronize(stream);
+    } else {
+        cudaDeviceSynchronize();
+    }
 
     cudaFree(d_keys);
     cudaFree(d_values);

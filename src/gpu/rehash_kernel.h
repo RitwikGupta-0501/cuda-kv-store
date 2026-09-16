@@ -1,6 +1,6 @@
 #pragma once
 
-#include "xxhash3.h"
+#include "hash.h"
 #include "bucket_cuckoo.h"
 #include <cuda_runtime.h>
 
@@ -67,8 +67,8 @@ __device__ inline bool rehash_entry_device(
             uint32_t slot = lane_id;
             uint32_t old_mask = bucket_b1->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                uint32_t old_key = atomicCAS(&bucket_b1->keys[slot], 0, 0xFFFFFFFF);
-                if (old_key == 0) b1_claimed = true;
+                uint32_t old_key = atomicCAS(&bucket_b1->keys[slot], EMPTY_KEY, LOCK_SENTINEL);
+                if (old_key == EMPTY_KEY) b1_claimed = true;
             }
         }
         
@@ -83,7 +83,7 @@ __device__ inline bool rehash_entry_device(
                 atomicOr(&bucket_b1->occupancy_mask, (1u << slot));
                 b1_success = true;
             } else {
-                bucket_b1->keys[slot] = 0; // Release unused locks
+                bucket_b1->keys[slot] = EMPTY_KEY; // Release unused locks
             }
         }
 
@@ -99,8 +99,8 @@ __device__ inline bool rehash_entry_device(
             uint32_t slot = lane_id - 8;
             uint32_t old_mask = bucket_b2->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                uint32_t old_key = atomicCAS(&bucket_b2->keys[slot], 0, 0xFFFFFFFF);
-                if (old_key == 0) b2_claimed = true;
+                uint32_t old_key = atomicCAS(&bucket_b2->keys[slot], EMPTY_KEY, LOCK_SENTINEL);
+                if (old_key == EMPTY_KEY) b2_claimed = true;
             }
         }
         
@@ -115,7 +115,7 @@ __device__ inline bool rehash_entry_device(
                 atomicOr(&bucket_b2->occupancy_mask, (1u << slot));
                 b2_success = true;
             } else {
-                bucket_b2->keys[slot] = 0; // Release unused locks
+                bucket_b2->keys[slot] = EMPTY_KEY; // Release unused locks
             }
         }
 
@@ -137,9 +137,9 @@ __device__ inline bool rehash_entry_device(
             // Read victim's key
             uint32_t victim_key = victim_bucket->keys[victim_slot];
 
-            if (victim_key != 0 && victim_key != 0xFFFFFFFF) {
+            if (victim_key != EMPTY_KEY && victim_key != LOCK_SENTINEL) {
                 // Attempt to lock victim slot
-                uint32_t old_key = atomicCAS(&victim_bucket->keys[victim_slot], victim_key, 0xFFFFFFFF);
+                uint32_t old_key = atomicCAS(&victim_bucket->keys[victim_slot], victim_key, LOCK_SENTINEL);
 
                 if (old_key == victim_key) {
                     // Lock acquired! Safe to read value and overwrite

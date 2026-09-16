@@ -60,11 +60,9 @@ struct StashEntry {
 };
 
 struct StashQueue {
-    // Next write position (atomically incremented by GPU)
+    // Next write position (atomically incremented by GPU).
+    // Reset to 0 after each rehash drain.
     uint32_t head;
-
-    // Next read position (incremented by CPU)
-    uint32_t tail;
 
     // Stash entries: 32768 slots
     StashEntry entries[32768];
@@ -117,10 +115,17 @@ static constexpr uint32_t BATCH_SIZE = 4096;
 // Must be large enough to absorb burst collisions before rehash kicks in (Max in-flight = 4 streams * 4096 = 16384)
 static constexpr uint32_t STASH_CAPACITY = 32768;
 
-// Empty key marker (for CPU-side operations)
-static constexpr uint32_t EMPTY_KEY = 0xFFFFFFFFu;
+// Reserved key: key 0 cannot be inserted.
+// The cuckoo locking protocol uses atomicCAS(key, 0, LOCK_SENTINEL) to claim
+// an empty slot, so key 0 is indistinguishable from an empty slot.
+// Table initialization via cudaMemset(0) sets all keys to 0 (= empty).
+static constexpr uint32_t EMPTY_KEY = 0x00000000u;
 
-// Not found marker (for GPU kernels)
+// Lock sentinel: temporary value written to a key slot while a warp is
+// performing an atomic write. No real key can ever have this value.
+static constexpr uint32_t LOCK_SENTINEL = 0xFFFFFFFFu;
+
+// Not found marker returned to the caller on a lookup miss.
 static constexpr uint32_t NOT_FOUND = 0xFFFFFFFFu;
 
 }  // namespace warpkv

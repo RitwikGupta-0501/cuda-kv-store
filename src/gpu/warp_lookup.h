@@ -1,6 +1,6 @@
 #pragma once
 
-#include "xxhash3.h"
+#include "hash.h"
 #include "bucket_cuckoo.h"
 #include <cuda_runtime.h>
 
@@ -150,8 +150,11 @@ struct LookupBatch {
     uint32_t num_keys;
 };
 
-// Launch lookup kernel for a batch of keys
-void warp_lookup_batch(
+// Launch lookup kernel for a batch of keys (Synchronous/Test Wrapper)
+// Note: This wrapper performs internal cudaMalloc/cudaFree per call.
+// It is intended for unit tests. Production code (WarpKVEngine) uses
+// CUDA Graphs with pre-allocated device buffers instead.
+void warp_lookup_batch_sync(
     BucketTable table,
     StashQueue* d_stash,
     const LookupBatch& batch,

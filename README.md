@@ -7,12 +7,12 @@ WarpKV is designed for extreme throughput workloads that require millions of ope
 
 ## ✨ Key Architectural Features
 
-- **Warp-Cooperative Execution:** Uses all 32 threads in a CUDA warp collaboratively to scan hash buckets in parallel, eliminating warp divergence and achieving 100% coalesced memory access.
-- **Double-Buffered Epoch-Based Reclamation (EBR):** A fully lock-free, zero-downtime background rehashing system. When the GPU load factor crosses 50%, a background thread seamlessly allocates a new table, migrates data, and hot-swaps the pointers without blocking in-flight CPU operations.
+- **Lock-Free Pipelining:** Uses CUDA Streams and Events to overlap memory copies with kernel execution.
+- **Epoch-Based Reclamation:** Double-buffered hash tables allow background rehashing without locking readers.
+- **Warp-Cooperative Execution:** Employs `__ballot_sync` and `__shfl_sync` for branchless thread communication.
 - **Lock-Free Stash Queue:** A highly optimized emergency overflow queue for Cuckoo Hash collisions, preventing data loss and triggering automatic backpressure.
 - **Asynchronous PCIe Pipelining:** Uses multiple pinned memory streams (`cudaMemcpyAsync`) and CUDA Graphs (`cudaGraphLaunch`) to saturate the PCIe bus and overlap CPU batching with GPU execution.
 - **GPU-Optimized XXHash3:** Includes a custom, heavily vectorized implementation of `xxhash3` that runs natively on the GPU for sub-nanosecond fingerprinting.
-- **Arena Memory Allocator:** Pre-allocates all necessary VRAM upfront, completely eliminating `cudaMalloc` overheads during execution.
 
 ## 📊 Benchmarks
 
@@ -73,14 +73,14 @@ After building the project, you can run the benchmarks directly from the `build`
 
 For a deep dive into the internal architecture, engine design, and mathematical proofs behind the implementation, please see our comprehensive design docs:
 
-- [`01_engine_architecture.md`](docs/01_engine_architecture.md) - PCIe bottleneck fixes and async pipelining
-- [`02_epoch_based_reclamation.md`](docs/02_epoch_based_reclamation.md) - Background lock-free rehashing
-- [`03_cuckoo_hashing.md`](docs/03_cuckoo_hashing.md) - Mathematical bounds and eviction chains
-- [`04_stream_buffer.md`](docs/04_stream_buffer.md) - Pinned host memory batching
-- [`05_memory_coalescing.md`](docs/05_memory_coalescing.md) - 128-byte warp alignment optimizations
-- [`06_arena_allocator.md`](docs/06_arena_allocator.md) - VRAM double-buffering
-- [`07_xxhash3_gpu.md`](docs/07_xxhash3_gpu.md) - Vectorized GPU hashing
-- [`08_python_bindings.md`](docs/08_python_bindings.md) - pybind11 integration
+- 1. **[PCIe Bottleneck Optimizations](docs/01_pcie_bottleneck_optimizations.md)** — Batched transfers and asynchronous command overlapping.
+- 2. **[Epoch-Based Reclamation (EBR)](docs/02_epoch_based_reclamation.md)** — Wait-free table swaps without interrupting read queries.
+- 3. **[Cuckoo Hashing on GPU](docs/03_cuckoo_hashing.md)** — Lock-free multi-hop eviction chains.
+- 4. **[Pipeline Architecture](docs/04_pipeline_architecture.md)** — 3-stage stream buffering for concurrent `H->D`, `Kernel`, and `D->H`.
+- 5. **[Memory Coalescing & Bucket Layout](docs/05_memory_coalescing_and_bucket_layout.md)** — Struct-of-Arrays (SoA) layout aligned to 128-byte L1 cache lines.
+- 6. **[GPU-Optimized Integer Hash](docs/07_gpu_optimized_hashing.md)** — Murmur3-derived finalizer for ultra-fast GPU hashing.
+- 7. **[Python Bindings & Interop](docs/08_python_bindings_and_interop.md)** — Zero-copy pybind11 integration.
+- 8. **[Benchmarking & Validation](docs/09_benchmarking_and_validation.md)** — YCSB methodology and correctness validation.
 
 ## 🐍 Python Bindings
 
@@ -90,12 +90,12 @@ WarpKV comes with native Python bindings via `pybind11` for use in Machine Learn
 import warpkv
 import numpy as np
 
-# Initialize engine with 4 Million buckets
+# Initialize engine with 4 million buckets
 engine = warpkv.Engine(4194304)
 
-# Create 1 Million sequential keys
-keys = np.arange(1, 1000001, dtype=np.uint32)
-values = keys * 2
+# Prepare batch data (must be contiguous arrays)
+keys = np.arange(1, 4097, dtype=np.uint32)
+values = keys * 10
 
 # Insert batch
 engine.insert_batch(keys, values)

@@ -67,16 +67,20 @@ int main(int argc, char** argv) {
     t_end = std::chrono::high_resolution_clock::now();
 
     double lookup_sec = std::chrono::duration<double>(t_end - t_start).count();
-    uint32_t errors = 0;
+    uint32_t not_found = 0;
+    uint32_t wrong_value = 0;
     for (uint32_t i = 0; i < NUM_OPERATIONS; ++i) {
-        if (out_values[i] != query_keys[i] * 2) {
-            errors++;
+        if (out_values[i] == NOT_FOUND) {
+            not_found++;
+        } else if (out_values[i] != query_keys[i] * 2) {
+            wrong_value++;
         }
     }
 
     printf("  ✓ YCSB Workload C complete in %.2fs\n", lookup_sec);
     printf("  ✓ Lookup throughput: %.2f M keys/sec\n", (NUM_OPERATIONS / 1e6) / lookup_sec);
-    printf("  ✓ Mismatches: %u\n\n", errors);
+    printf("  ✓ Missing keys (NOT_FOUND): %u\n", not_found);
+    printf("  ✓ Value mismatches: %u\n\n", wrong_value);
 
-    return errors == 0 ? 0 : 1;
+    return (not_found == 0 && wrong_value == 0) ? 0 : 1;
 }

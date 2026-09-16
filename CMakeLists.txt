@@ -40,27 +40,13 @@ if(NOT GTest_FOUND)
     FetchContent_MakeAvailable(googletest)
 endif()
 
-# ============================================================================
-# Phase 0: Foundation Targets
-# ============================================================================
-
-# Hardware validation utility (Phase 0)
-add_executable(hardware_validation
-    src/core/hardware_validation.cpp
-)
-target_link_libraries(hardware_validation CUDA::cudart)
-
-# ============================================================================
-# Unit Tests (Phase 0 onwards)
-# ============================================================================
-
 # Hash function unit tests (Phase 1)
-add_executable(test_xxhash3
-    tests/unit/test_xxhash3.cpp
-    src/gpu/xxhash3.cu
+add_executable(test_hash_function
+    tests/unit/test_hash_function.cpp
+    src/gpu/hash.cu
 )
-target_link_libraries(test_xxhash3 GTest::gtest_main CUDA::cudart)
-add_test(NAME XXHash3Tests COMMAND test_xxhash3)
+target_link_libraries(test_hash_function GTest::gtest_main CUDA::cudart)
+add_test(NAME HashFunctionTests COMMAND test_hash_function)
 
 # Bucket layout unit tests (Phase 2)
 add_executable(test_bucket_layout
@@ -70,21 +56,11 @@ add_executable(test_bucket_layout
 target_link_libraries(test_bucket_layout GTest::gtest_main CUDA::cudart)
 add_test(NAME BucketLayoutTests COMMAND test_bucket_layout)
 
-# Arena allocator unit tests (Phase 2)
-add_executable(test_arena_allocator
-    tests/unit/test_arena_allocator.cpp
-    src/gpu/arena_allocator.cu
-    src/gpu/bucket_cuckoo.h
-)
-target_link_libraries(test_arena_allocator GTest::gtest_main CUDA::cudart)
-add_test(NAME ArenaAllocatorTests COMMAND test_arena_allocator)
-
 # Warp lookup kernel unit tests (Phase 3)
 add_executable(test_warp_lookup
     tests/unit/test_warp_lookup.cu
     src/gpu/warp_lookup.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_warp_lookup GTest::gtest_main CUDA::cudart)
@@ -98,8 +74,8 @@ add_test(NAME WarpLookupTests COMMAND test_warp_lookup)
 add_executable(test_cuckoo_insert
     tests/unit/test_cuckoo_insert.cu
     src/gpu/cuckoo_insert.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/cuckoo_delete.cu
+    src/gpu/hash.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_cuckoo_insert GTest::gtest_main CUDA::cudart)
@@ -108,8 +84,7 @@ add_test(NAME CuckooInsertTests COMMAND test_cuckoo_insert)
 # Debug kernel tests
 add_executable(test_debug_kernels
     tests/unit/test_debug_kernels.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_debug_kernels GTest::gtest_main CUDA::cudart)
@@ -119,9 +94,9 @@ add_test(NAME DebugKernels COMMAND test_debug_kernels)
 add_executable(test_eviction_chains
     tests/unit/test_eviction_chains.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_eviction_chains GTest::gtest_main CUDA::cudart)
@@ -132,17 +107,23 @@ add_executable(test_rehash_kernel
     tests/unit/test_rehash_kernel.cu
     src/gpu/rehash_kernel.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(test_rehash_kernel GTest::gtest_main CUDA::cudart)
 add_test(NAME RehashKernelTests COMMAND test_rehash_kernel)
 
-# Lookup correctness integration test (Phase 3)
+# Lookup and Delete correctness integration test (Phase 3 & 5)
 add_executable(test_lookup_correctness
-    tests/integration/test_lookup_correctness.cpp
+    tests/integration/test_lookup_correctness.cu
+    src/engine/warpkv_engine.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
+    src/gpu/warp_lookup.cu
+    src/gpu/rehash_kernel.cu
+    src/gpu/hash.cu
 )
 target_link_libraries(test_lookup_correctness GTest::gtest_main CUDA::cudart)
 add_test(NAME LookupCorrectnessTests COMMAND test_lookup_correctness)
@@ -152,10 +133,10 @@ add_executable(test_engine_concurrent
     tests/unit/test_engine_concurrent.cu
     src/engine/warpkv_engine.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
     src/gpu/rehash_kernel.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
 )
 target_link_libraries(test_engine_concurrent GTest::gtest_main CUDA::cudart)
 add_test(NAME EngineConcurrentTests COMMAND test_engine_concurrent)
@@ -164,10 +145,10 @@ add_test(NAME EngineConcurrentTests COMMAND test_engine_concurrent)
 # Benchmarks
 # ============================================================================
 
-# Hash throughput# GPU kernel debugging (Phase 4.5)
+# Hash throughput benchmark
 add_executable(bench_hash_throughput
     benchmarks/hash_throughput.cu
-    src/gpu/xxhash3.cu
+    src/gpu/hash.cu
 )
 target_link_libraries(bench_hash_throughput CUDA::cudart)
 
@@ -176,10 +157,10 @@ add_executable(engine_benchmark
     benchmarks/engine_benchmark.cu
     src/engine/warpkv_engine.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
     src/gpu/rehash_kernel.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
 )
 target_link_libraries(engine_benchmark CUDA::cudart)
 
@@ -188,10 +169,10 @@ add_executable(ycsb_benchmark
     benchmarks/ycsb_benchmark.cu
     src/engine/warpkv_engine.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
     src/gpu/rehash_kernel.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
 )
 target_link_libraries(ycsb_benchmark CUDA::cudart)
 
@@ -200,26 +181,22 @@ add_executable(load_factor_benchmark
     benchmarks/load_factor_benchmark.cu
     src/engine/warpkv_engine.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
     src/gpu/rehash_kernel.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
 )
 target_link_libraries(load_factor_benchmark CUDA::cudart)
-
-# Deprecated (CPU version from Phase 0)simulation (quick validation)
-add_executable(synthetic_load_test
-    benchmarks/synthetic_load_test.cu
-)
-target_link_libraries(synthetic_load_test CUDA::cudart)
 
 # Synthetic load test — GPU version (real kernel execution)
 add_executable(gpu_synthetic_load_test
     benchmarks/gpu_synthetic_load_test.cu
+    src/engine/warpkv_engine.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
-    src/gpu/arena_allocator.cu
-    src/gpu/xxhash3.cu
+    src/gpu/rehash_kernel.cu
+    src/gpu/hash.cu
     src/gpu/bucket_cuckoo.h
 )
 target_link_libraries(gpu_synthetic_load_test CUDA::cudart)
@@ -241,22 +218,12 @@ pybind11_add_module(warpkv
     src/python/warpkv_binding.cpp
     src/engine/warpkv_engine.cu
     src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
     src/gpu/rehash_kernel.cu
-    src/gpu/xxhash3.cu
-    src/gpu/arena_allocator.cu
+    src/gpu/hash.cu
 )
 target_link_libraries(warpkv PRIVATE CUDA::cudart)
-
-# ============================================================================
-# Main Application (Phase 7+)
-# ============================================================================
-
-# add_executable(warpkv_example
-#     src/main.cpp
-#     src/core/config.cpp
-# )
-# target_link_libraries(warpkv_example CUDA::cudart)
 
 # ============================================================================
 # Build Summary
@@ -268,8 +235,7 @@ message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Unit Tests: ENABLED")
 message(STATUS "")
 message(STATUS "Build targets:")
-message(STATUS "  cmake --build . --target hardware_validation  # Phase 0")
-message(STATUS "  cmake --build . --target test_xxhash3         # Phase 1")
+message(STATUS "  cmake --build . --target test_hash_function   # Phase 1")
 message(STATUS "  cmake --build . --target test_bucket_layout   # Phase 2")
 message(STATUS "  cmake --build . --target test_warp_lookup     # Phase 3")
 message(STATUS "  ctest                                         # Run all tests")

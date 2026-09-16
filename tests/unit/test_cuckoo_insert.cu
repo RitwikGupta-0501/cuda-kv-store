@@ -46,7 +46,7 @@ TEST_F(CuckooInsertTest, InsertIntoEmptyB1) {
     batch.h_hops = hops;
     batch.num_keys = 1;
 
-    warp_insert_batch(*table_, stash_, d_needs_rehash_flag_, batch);
+    warp_insert_batch_sync(*table_, stash_, d_needs_rehash_flag_, batch);
 
     EXPECT_EQ(statuses[0], INSERT_SUCCESS) << "Should insert successfully";
     EXPECT_EQ(hops[0], 0) << "Should take 0 eviction hops";
@@ -83,7 +83,7 @@ TEST_F(CuckooInsertTest, MultipleInsertsSameBucket) {
     batch.h_hops = nullptr; // Optional
     batch.num_keys = num;
 
-    warp_insert_batch(*table_, stash_, d_needs_rehash_flag_, batch);
+    warp_insert_batch_sync(*table_, stash_, d_needs_rehash_flag_, batch);
 
     for (int i = 0; i < num; ++i) {
         EXPECT_EQ(statuses[i], INSERT_SUCCESS) << "Key " << i << " should insert successfully";

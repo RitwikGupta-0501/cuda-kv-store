@@ -4,8 +4,7 @@
 
 namespace warpkv {
 
-// Host-side wrapper: allocate temporary buffers and launch kernel
-void warp_lookup_batch(
+void warp_lookup_batch_sync(
     BucketTable table,
     StashQueue* d_stash,
     const LookupBatch& batch,
@@ -98,8 +97,10 @@ void warp_lookup_batch(
                                cudaGetErrorString(err));
     }
 
-    // Synchronize if stream is null
-    if (stream == nullptr) {
+    // Must sync before freeing — async ops on the stream are still in flight.
+    if (stream != nullptr) {
+        cudaStreamSynchronize(stream);
+    } else {
         cudaDeviceSynchronize();
     }
 
