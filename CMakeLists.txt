@@ -23,6 +23,7 @@ set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O3 --expt-extended-lambda")
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/src)
 include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${CMAKE_SOURCE_DIR}/include/warpkv)
 
 # ============================================================================
 # Google Test Framework (for unit tests)
@@ -142,6 +143,34 @@ target_link_libraries(test_engine_concurrent GTest::gtest_main CUDA::cudart)
 add_test(NAME EngineConcurrentTests COMMAND test_engine_concurrent)
 
 # ============================================================================
+# Phase 1 Tests
+# ============================================================================
+
+# Step 1.1: warpkv_device.cuh self-contained header acceptance test
+# This test includes ONLY warpkv_device.cuh — no other project headers.
+# Verifies the header is truly standalone and all device APIs are accessible.
+add_executable(test_warpkv_device_header
+    tests/unit/test_warpkv_device_header.cu
+)
+target_link_libraries(test_warpkv_device_header CUDA::cudart)
+# No GTest — this is a standalone self-validating binary.
+add_test(NAME DeviceHeaderSelfContained COMMAND test_warpkv_device_header)
+
+# Step 1.3: Async pipeline acceptance test
+add_executable(test_async_pipeline
+    tests/unit/test_async_pipeline.cu
+    src/engine/warpkv_engine.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
+    src/gpu/warp_lookup.cu
+    src/gpu/rehash_kernel.cu
+    src/gpu/hash.cu
+)
+target_link_libraries(test_async_pipeline GTest::gtest_main CUDA::cudart)
+add_test(NAME AsyncPipelineTests COMMAND test_async_pipeline)
+
+
+# ============================================================================
 # Benchmarks
 # ============================================================================
 
@@ -226,6 +255,38 @@ pybind11_add_module(warpkv
 target_link_libraries(warpkv PRIVATE CUDA::cudart)
 
 # ============================================================================
+# Phase 1: PTX Device Module (extern "C" __global__ entry points)
+# ============================================================================
+# Builds a .ptx file containing the three C-linkage kernel entry points.
+# Loadable at runtime by Numba (cuModuleLoad), CuPy (RawModule), or
+# any CUDA Driver API consumer (Rust-CUDA, ctypes, etc.)
+#
+# Usage: cmake --build . --target warpkv_device_ptx
+#        Output: warpkv_kernels.ptx in the build directory
+# ============================================================================
+
+# Use a custom command since CMake doesn't natively support --ptx output
+find_program(NVCC_EXECUTABLE nvcc
+    HINTS ${CUDAToolkit_BIN_DIR}
+    REQUIRED
+)
+
+add_custom_target(warpkv_device_ptx
+    COMMAND ${NVCC_EXECUTABLE}
+            -arch=sm_${CMAKE_CUDA_ARCHITECTURES}
+            --ptx
+            -std=c++14
+            --expt-extended-lambda
+            -I ${CMAKE_SOURCE_DIR}/include
+            -I ${CMAKE_SOURCE_DIR}/include/warpkv
+            -o ${CMAKE_CURRENT_BINARY_DIR}/warpkv_kernels.ptx
+            ${CMAKE_SOURCE_DIR}/src/gpu/warpkv_entry_kernels.cu
+    BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/warpkv_kernels.ptx
+    COMMENT "Building WarpKV PTX device module -> warpkv_kernels.ptx"
+    VERBATIM
+)
+
+# ============================================================================
 # Build Summary
 # ============================================================================
 message(STATUS "WarpKV v2.0.2 Build Configuration")
@@ -235,8 +296,14 @@ message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Unit Tests: ENABLED")
 message(STATUS "")
 message(STATUS "Build targets:")
-message(STATUS "  cmake --build . --target test_hash_function   # Phase 1")
-message(STATUS "  cmake --build . --target test_bucket_layout   # Phase 2")
-message(STATUS "  cmake --build . --target test_warp_lookup     # Phase 3")
-message(STATUS "  ctest                                         # Run all tests")
+message(STATUS "  cmake --build . --target test_hash_function     # Hash unit tests")
+message(STATUS "  cmake --build . --target test_bucket_layout     # Bucket layout tests")
+message(STATUS "  cmake --build . --target test_warp_lookup       # Warp lookup tests")
+message(STATUS "  cmake --build . --target warpkv_device_ptx      # Phase 1: PTX module")
+message(STATUS "  ctest                                            # Run all tests")
+message(STATUS "")
+message(STATUS "Phase 1 (Device API):")
+message(STATUS "  Device header: include/warpkv/warpkv_device.cuh")
+message(STATUS "  PTX entry:     src/gpu/warpkv_entry_kernels.cu")
+message(STATUS "  PTX output:    <build>/warpkv_kernels.ptx")
 message(STATUS "")

@@ -1,163 +1,83 @@
+// =============================================================================
+// warp_lookup.h — Warp-cooperative lookup kernel (host-side wrappers)
+// =============================================================================
+// The device-side lookup logic (warp_lookup_device, LookupResult) has been
+// consolidated into warpkv_device.cuh. This header re-exports those symbols
+// and retains the host-side batch struct and synchronous test wrapper.
+// =============================================================================
+
 #pragma once
 
-#include "hash.h"
-#include "bucket_cuckoo.h"
+#include "../../include/warpkv/warpkv_device.cuh"
 #include <cuda_runtime.h>
 
 namespace warpkv {
 
-// ============================================================================
-// Warp-Cooperative Lookup Kernel
-// ============================================================================
-// One warp processes one key:
-// - Lanes 0-7: scan bucket b1 (hash[0])
-// - Lanes 8-15: scan bucket b2 (hash[1])
-// - Parallel filtering via fingerprint comparison before key comparison
-// - Returns value on hit, NOT_FOUND on miss
-// ============================================================================
-
-struct LookupResult {
-    uint32_t value;
-    bool found;
-};
-
 #ifdef __CUDACC__
 
-// Device-side lookup function (called by kernel)
-__device__ inline LookupResult warp_lookup_device(
-    BucketTable table,
-    StashQueue* stash,
-    uint32_t key,
-    uint8_t fingerprint) {
-
-    // Compute both bucket addresses
-    HashPair hash_pair = compute_hash_pair(key, table.bucket_mask);
-    Bucket* bucket_b1 = &table.buckets[hash_pair.b1];
-    Bucket* bucket_b2 = &table.buckets[hash_pair.b2];
-
-    uint32_t lane_id = threadIdx.x % 32;
-    uint32_t slot_id = lane_id;  // Each lane scans one slot in parallel
-
-    LookupResult result = {NOT_FOUND, false};
-
-    // ========== Lanes 0-7: Scan bucket b1 ==========
-    if (lane_id < 8) {
-        // Check if slot is occupied
-        if (bucket_b1->occupancy_mask & (1u << slot_id)) {
-            // Fast path: check fingerprint first
-            if (bucket_b1->fingerprint[slot_id] == fingerprint) {
-                // Fingerprint match: verify actual key
-                if (bucket_b1->keys[slot_id] == key) {
-                    result.value = bucket_b1->values[slot_id];
-                    result.found = true;
-                }
-            }
-        }
-    }
-    // ========== Lanes 8-15: Scan bucket b2 in parallel ==========
-    else if (lane_id < 16) {
-        uint32_t b2_slot = lane_id - 8;
-
-        // Check if slot is occupied
-        if (bucket_b2->occupancy_mask & (1u << b2_slot)) {
-            // Fast path: check fingerprint first
-            if (bucket_b2->fingerprint[b2_slot] == fingerprint) {
-                // Fingerprint match: verify actual key
-                if (bucket_b2->keys[b2_slot] == key) {
-                    result.value = bucket_b2->values[b2_slot];
-                    result.found = true;
-                }
-            }
-        }
-    }
-
-    // Broadcast result from whichever lane found it
-    int found_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.found)) - 1;
-    if (found_lane >= 0) {
-        result.value = __shfl_sync(0xFFFFFFFFu, result.value, found_lane);
-        result.found = true;
-        return result;
-    }
-
-    // ========== Not found in buckets: Scan Stash ==========
-    if (stash != nullptr) {
-        // Read current size of stash (bounded by capacity to prevent OOB reads during overflow)
-        uint32_t stash_size = ((volatile uint32_t*)&stash->head)[0];
-        if (stash_size > STASH_CAPACITY) stash_size = STASH_CAPACITY;
-        
-        // Warp cooperatively scans the stash
-        for (uint32_t i = lane_id; i < stash_size; i += 32) {
-            if (stash->entries[i].key == key) {
-                result.value = stash->entries[i].value;
-                result.found = true;
-                break;
-            }
-        }
-        
-        // Broadcast result again
-        found_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.found)) - 1;
-        if (found_lane >= 0) {
-            result.value = __shfl_sync(0xFFFFFFFFu, result.value, found_lane);
-            result.found = true;
-        }
-    }
-
-    return result;
-}
-
-// Kernel: process a batch of lookup keys
-// Assumes one warp per key (32 threads per key)
+// ============================================================================
+// Warp-Cooperative Lookup Kernel (batch entry point)
+// ============================================================================
+// One warp (32 threads) processes one key:
+//   Lanes  0-7:  scan primary bucket b1
+//   Lanes  8-15: scan secondary bucket b2 in parallel
+//   Lanes 16-31: idle during bucket scan; cooperative during stash scan
+//
+// Lane 0 writes the result to global memory.
+// ============================================================================
 static __global__ void warp_lookup_kernel(
-    BucketTable table,
-    StashQueue* stash,
-    const uint32_t* keys,
-    uint32_t* values,
-    uint32_t* found_flags,
-    uint32_t num_keys) {
-
-    // Each warp processes one key
-    uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
-
+    BucketTable  table,
+    StashQueue*  stash,
+    const uint32_t* __restrict__ keys,
+    uint32_t*    values,
+    uint32_t*    found_flags,
+    uint32_t     num_keys)
+{
+    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
     if (key_idx >= num_keys) return;
 
-    uint32_t key = keys[key_idx];
+    const uint32_t key = keys[key_idx];
     if (key == EMPTY_KEY) {
         if ((threadIdx.x % 32) == 0) {
-            values[key_idx] = NOT_FOUND;
+            values[key_idx]      = NOT_FOUND;
             found_flags[key_idx] = 0;
         }
         return;
     }
-    
-    uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
 
-    LookupResult result = warp_lookup_device(table, stash, key, fp);
+    const uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
+    const LookupResult result = warp_lookup_device(table, stash, key, fp);
 
-    // Lane 0 writes result
     if ((threadIdx.x % 32) == 0) {
-        values[key_idx] = result.value;
+        values[key_idx]      = result.value;
         found_flags[key_idx] = result.found ? 1u : 0u;
     }
 }
 
 #endif // __CUDACC__
 
-// Host-side wrapper for lookup batches
+// ============================================================================
+// Host-side batch descriptor (used by test wrappers and the engine)
+// ============================================================================
+
 struct LookupBatch {
-    uint32_t* h_keys;         // Host input: keys
-    uint32_t* h_values;       // Host output: values
-    uint32_t* h_found;        // Host output: found flags (0=not found, 1=found)
-    uint32_t num_keys;
+    uint32_t* h_keys;   ///< Host input: keys to look up
+    uint32_t* h_values; ///< Host output: found values (NOT_FOUND on miss)
+    uint32_t* h_found;  ///< Host output: 1 if found, 0 if not found
+    uint32_t  num_keys;
 };
 
-// Launch lookup kernel for a batch of keys (Synchronous/Test Wrapper)
-// Note: This wrapper performs internal cudaMalloc/cudaFree per call.
-// It is intended for unit tests. Production code (WarpKVEngine) uses
-// CUDA Graphs with pre-allocated device buffers instead.
+// ============================================================================
+// Synchronous test wrapper
+// ============================================================================
+// NOTE: This wrapper allocates and frees device memory on every call.
+// It is intended for unit tests only. Production code (WarpKVEngine) uses
+// CUDA Graphs with pre-allocated device buffers.
+// ============================================================================
 void warp_lookup_batch_sync(
-    BucketTable table,
-    StashQueue* d_stash,
-    const LookupBatch& batch,
-    cudaStream_t stream = nullptr);
+    BucketTable         table,
+    StashQueue*         d_stash,
+    const LookupBatch&  batch,
+    cudaStream_t        stream = nullptr);
 
-}  // namespace warpkv
+} // namespace warpkv
