@@ -34,23 +34,23 @@ namespace warpkv {
 static __global__ void warp_delete_kernel(
     BucketTable          table,
     StashQueue*          stash,
-    const uint32_t* __restrict__ keys,
+    const KeyT* __restrict__ keys,
     uint32_t*            deleted_flags,
     uint32_t             num_keys)
 {
-    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    const uint32_t key_idx = blockIdx.x * (blockDim.x / 16) + (threadIdx.x / 16);
     if (key_idx >= num_keys) return;
 
-    const uint32_t key = keys[key_idx];
+    const KeyT key = keys[key_idx];
     if (key == EMPTY_KEY) {
-        if ((threadIdx.x % 32) == 0) deleted_flags[key_idx] = 0;
+        if ((threadIdx.x % 16) == 0) deleted_flags[key_idx] = 0;
         return;
     }
 
     const uint8_t fp      = compute_hash_pair(key, table.bucket_mask).fingerprint;
     const bool    success = warp_delete_device(table, stash, key, fp);
 
-    if ((threadIdx.x % 32) == 0) {
+    if ((threadIdx.x % 16) == 0) {
         deleted_flags[key_idx] = success ? 1u : 0u;
     }
 }
@@ -62,7 +62,7 @@ static __global__ void warp_delete_kernel(
 // ============================================================================
 
 struct DeleteBatch {
-    const uint32_t* h_keys;    ///< Host input: keys to delete
+    const KeyT*     h_keys;    ///< Host input: keys to delete
     uint32_t*       h_deleted; ///< Host output: 1 if deleted, 0 if not found
     uint32_t        num_keys;
 };

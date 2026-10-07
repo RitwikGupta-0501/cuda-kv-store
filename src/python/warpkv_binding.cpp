@@ -25,8 +25,8 @@ PYBIND11_MODULE(warpkv, m) {
         // ----------------------------------------------------------------
         .def("insert_batch",
             [](WarpKVEngine& engine,
-               py::array_t<uint32_t> keys,
-               py::array_t<uint32_t> values)
+               py::array_t<KeyT> keys,
+               py::array_t<ValueT> values)
         {
             const py::buffer_info keys_info   = keys.request();
             const py::buffer_info values_info = values.request();
@@ -41,8 +41,8 @@ PYBIND11_MODULE(warpkv, m) {
                     std::to_string(warpkv::BATCH_SIZE) + ")");
             }
 
-            auto* keys_ptr   = static_cast<const uint32_t*>(keys_info.ptr);
-            auto* values_ptr = static_cast<const uint32_t*>(values_info.ptr);
+            auto* keys_ptr   = static_cast<const KeyT*>(keys_info.ptr);
+            auto* values_ptr = static_cast<const KeyT*>(values_info.ptr);
             const uint32_t count = static_cast<uint32_t>(keys_info.size);
 
             // Release the GIL while the blocking CUDA pipeline runs.
@@ -57,23 +57,23 @@ PYBIND11_MODULE(warpkv, m) {
         // lookup_batch
         // ----------------------------------------------------------------
         .def("lookup_batch",
-            [](WarpKVEngine& engine, py::array_t<uint32_t> keys) -> py::array_t<uint32_t>
+            [](WarpKVEngine& engine, py::array_t<KeyT> keys) -> py::array_t<KeyT>
         {
             const py::buffer_info keys_info = keys.request();
-            if (keys_info.size == 0) return py::array_t<uint32_t>(0);
+            if (keys_info.size == 0) return py::array_t<KeyT>(0);
             if (static_cast<size_t>(keys_info.size) > static_cast<size_t>(warpkv::BATCH_SIZE)) {
                 throw std::invalid_argument(
                     "Batch size exceeds BATCH_SIZE (" +
                     std::to_string(warpkv::BATCH_SIZE) + ")");
             }
 
-            auto* keys_ptr    = static_cast<const uint32_t*>(keys_info.ptr);
+            auto* keys_ptr    = static_cast<const KeyT*>(keys_info.ptr);
             const uint32_t count = static_cast<uint32_t>(keys_info.size);
 
             // Allocate output array before releasing the GIL (pybind11 operations need GIL).
-            py::array_t<uint32_t> values_out(count);
+            py::array_t<ValueT> values_out(count);
             py::buffer_info out_info = values_out.request();
-            auto* out_ptr = static_cast<uint32_t*>(out_info.ptr);
+            auto* out_ptr = static_cast<ValueT*>(out_info.ptr);
 
             {
                 py::gil_scoped_release release;
@@ -91,7 +91,7 @@ PYBIND11_MODULE(warpkv, m) {
         // delete_batch
         // ----------------------------------------------------------------
         .def("delete_batch",
-            [](WarpKVEngine& engine, py::array_t<uint32_t> keys)
+            [](WarpKVEngine& engine, py::array_t<KeyT> keys)
         {
             const py::buffer_info keys_info = keys.request();
             if (keys_info.size == 0) return;
@@ -101,7 +101,7 @@ PYBIND11_MODULE(warpkv, m) {
                     std::to_string(warpkv::BATCH_SIZE) + ")");
             }
 
-            auto* keys_ptr   = static_cast<const uint32_t*>(keys_info.ptr);
+            auto* keys_ptr   = static_cast<const KeyT*>(keys_info.ptr);
             const uint32_t count = static_cast<uint32_t>(keys_info.size);
 
             py::gil_scoped_release release;

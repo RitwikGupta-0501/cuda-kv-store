@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "../src/gpu/xxhash3.h"
+#include "../src/gpu/warpkv_hash64.h"
 #include <vector>
 #include <random>
 #include <unordered_set>
@@ -7,10 +7,10 @@
 
 using namespace warpkv;
 
-// Phase 1: XXHash3 Unit Tests (Complete)
+// Phase 1: WarpKVHash Unit Tests (Complete)
 // Comprehensive validation of hash function properties per SPEC_V3_FINAL.md Section V
 
-class XXHash3Test : public ::testing::Test {
+class WarpKVHashTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Initialize RNG
@@ -23,15 +23,15 @@ protected:
 };
 
 // Test 1: Known value test
-TEST_F(XXHash3Test, KnownValues) {
+TEST_F(WarpKVHashTest, KnownValues) {
     // Test a few known keys to verify correctness
-    EXPECT_EQ(xxhash3_32_host(0u), xxhash3_32_host(0u));  // Consistent
-    EXPECT_NE(xxhash3_32_host(0u), xxhash3_32_host(1u));  // Different input → different output
+    EXPECT_EQ(warpkv_hash64_host(0u), warpkv_hash64_host(0u));  // Consistent
+    EXPECT_NE(warpkv_hash64_host(0u), warpkv_hash64_host(1u));  // Different input → different output
 
     // Test small keys
-    uint32_t hash0 = xxhash3_32_host(0u);
-    uint32_t hash1 = xxhash3_32_host(1u);
-    uint32_t hash2 = xxhash3_32_host(2u);
+    uint64_t hash0 = warpkv_hash64_host(0u);
+    uint64_t hash1 = warpkv_hash64_host(1u);
+    uint64_t hash2 = warpkv_hash64_host(2u);
 
     // All different (with high probability for random keys)
     EXPECT_NE(hash0, hash1);
@@ -40,9 +40,9 @@ TEST_F(XXHash3Test, KnownValues) {
 }
 
 // Test 2: Avalanche property
-TEST_F(XXHash3Test, AvalancheProperty) {
+TEST_F(WarpKVHashTest, AvalancheProperty) {
     const int num_trials = 100;
-    const int bits_per_hash = 32;
+    const int bits_per_hash = 64;
 
     std::vector<int> bit_flip_count(bits_per_hash, 0);
 
@@ -57,10 +57,10 @@ TEST_F(XXHash3Test, AvalancheProperty) {
             uint32_t key2 = key1 ^ (1u << bit);
 
             // Hash both
-            uint32_t hash1 = xxhash3_32_host(key1);
-            uint32_t hash2 = xxhash3_32_host(key2);
+            uint64_t hash1 = warpkv_hash64_host(key1);
+            uint64_t hash2 = warpkv_hash64_host(key2);
 
-            uint32_t xor_result = hash1 ^ hash2;
+            uint64_t xor_result = hash1 ^ hash2;
 
             // Count which output bits flipped
             for (int out_bit = 0; out_bit < bits_per_hash; ++out_bit) {
@@ -83,7 +83,7 @@ TEST_F(XXHash3Test, AvalancheProperty) {
 }
 
 // Test 3: Distribution uniformity (simplified chi-square)
-TEST_F(XXHash3Test, UniformDistribution) {
+TEST_F(WarpKVHashTest, UniformDistribution) {
     const int num_keys = 10000;
     const int num_buckets = 256;  // For chi-square test
 
@@ -93,7 +93,7 @@ TEST_F(XXHash3Test, UniformDistribution) {
     std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
     for (int i = 0; i < num_keys; ++i) {
         uint32_t key = dist(rng);
-        uint32_t hash = xxhash3_32_host(key);
+        uint64_t hash = warpkv_hash64_host(key);
         uint32_t bucket = hash % num_buckets;
         bucket_count[bucket]++;
     }
@@ -115,7 +115,7 @@ TEST_F(XXHash3Test, UniformDistribution) {
 }
 
 // Test 4: b1 != b2 decorrelation property (CRITICAL for spec)
-TEST_F(XXHash3Test, DecorelationB1NotB2) {
+TEST_F(WarpKVHashTest, DecorelationB1NotB2) {
     const uint32_t bucket_mask = 0xFFFFu;  // 64K buckets for testing
     const int num_keys = 10000000;  // 10M keys per spec requirement
 
@@ -140,7 +140,7 @@ TEST_F(XXHash3Test, DecorelationB1NotB2) {
 }
 
 // Test 5: Fingerprint properties
-TEST_F(XXHash3Test, FingerprintProperties) {
+TEST_F(WarpKVHashTest, FingerprintProperties) {
     const int num_keys = 100000;
 
     // Count fingerprint distribution
@@ -169,14 +169,14 @@ TEST_F(XXHash3Test, FingerprintProperties) {
 }
 
 // Test 6: Consistency (same input always produces same output)
-TEST_F(XXHash3Test, Consistency) {
+TEST_F(WarpKVHashTest, Consistency) {
     std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
 
     for (int i = 0; i < 1000; ++i) {
         uint32_t key = dist(rng);
-        uint32_t hash1 = xxhash3_32_host(key);
-        uint32_t hash2 = xxhash3_32_host(key);
-        uint32_t hash3 = xxhash3_32_host(key);
+        uint64_t hash1 = warpkv_hash64_host(key);
+        uint64_t hash2 = warpkv_hash64_host(key);
+        uint64_t hash3 = warpkv_hash64_host(key);
 
         EXPECT_EQ(hash1, hash2) << "Hash function is not consistent for key " << key;
         EXPECT_EQ(hash2, hash3) << "Hash function is not consistent for key " << key;
@@ -184,7 +184,7 @@ TEST_F(XXHash3Test, Consistency) {
 }
 
 // Test 7: Fingerprint false positive rate (3.1% expected for 8-bit fp, 8 slots)
-TEST_F(XXHash3Test, FingerprintFalsePositiveRate) {
+TEST_F(WarpKVHashTest, FingerprintFalsePositiveRate) {
     // Simulate stash lookup scenario:
     // 8 slots per bucket, 8-bit fingerprints
     // P(fingerprint match | key mismatch) = 1/256

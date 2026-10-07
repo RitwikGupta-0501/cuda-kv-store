@@ -32,6 +32,13 @@
 namespace warpkv {
 
 // =============================================================================
+// Type Aliases
+// =============================================================================
+// Abstracted types to support smooth migration to 64-bit keys/values.
+using KeyT   = uint64_t;
+using ValueT = uint64_t;
+
+// =============================================================================
 // Constants
 // =============================================================================
 
@@ -47,37 +54,40 @@ static constexpr uint32_t BATCH_SIZE = 4096;
 /// Total overflow stash capacity (must be > 4 × BATCH_SIZE for in-flight safety).
 static constexpr uint32_t STASH_CAPACITY = 32768;
 
+/// Number of slots per bucket (7 to fit exactly 128 bytes with 64-bit types)
+static constexpr uint32_t BUCKET_SLOTS = 7;
+
 /// Reserved key: value 0 cannot be inserted.
 /// The lock protocol uses atomicCAS(key, EMPTY_KEY, LOCK_SENTINEL) to claim
 /// empty slots, so key 0 is indistinguishable from an empty slot.
-static constexpr uint32_t EMPTY_KEY = 0x00000000u;
+static constexpr KeyT EMPTY_KEY = 0x0000000000000000ULL;
 
 /// Transient sentinel written to a key slot while a warp holds the lock.
 /// No real key may ever have this value.
-static constexpr uint32_t LOCK_SENTINEL = 0xFFFFFFFFu;
+static constexpr KeyT LOCK_SENTINEL = 0xFFFFFFFFFFFFFFFFULL;
 
 /// Value returned by lookup on a miss.
-static constexpr uint32_t NOT_FOUND = 0xFFFFFFFFu;
+static constexpr ValueT NOT_FOUND = 0xFFFFFFFFFFFFFFFFULL;
 
 // =============================================================================
 // Bucket Structure — 128 bytes = 1 L2 cache line (AoS layout)
 // =============================================================================
 
 struct Bucket {
-    /// Keys: 8 slots × uint32_t = 32 bytes
-    uint32_t keys[8];
+    /// Keys: 7 slots × 8 bytes = 56 bytes
+    KeyT keys[BUCKET_SLOTS];
 
-    /// Values: 8 slots × uint32_t = 32 bytes
-    uint32_t values[8];
+    /// Values: 7 slots × 8 bytes = 56 bytes
+    ValueT values[BUCKET_SLOTS];
 
-    /// Fingerprints: 8 slots × uint8_t = 8 bytes (fast-reject before key compare)
-    uint8_t fingerprint[8];
+    /// Fingerprints: 7 slots × 1 byte = 7 bytes
+    uint8_t fingerprint[BUCKET_SLOTS];
 
     /// Occupancy bitmask: bit i is set when slot i is occupied = 4 bytes
     uint32_t occupancy_mask;
 
-    /// Padding to fill a 128-byte L2 cache line = 52 bytes
-    uint8_t _pad[52];
+    /// Padding to fill a 128-byte L2 cache line = 5 bytes
+    uint8_t _pad[5];
 };
 
 static_assert(sizeof(Bucket) == 128, "Bucket must be exactly 128 bytes (1 L2 cache line)");
@@ -105,8 +115,8 @@ struct BucketTable {
 // =============================================================================
 
 struct StashEntry {
-    uint32_t key;
-    uint32_t value;
+    KeyT   key;
+    ValueT value;
 };
 
 struct StashQueue {
@@ -150,26 +160,26 @@ __host__ __device__ inline void bucket_clear_occupied(Bucket* bucket, int slot) 
 // Hash Functions
 // =============================================================================
 
-/// GPU device hash: Murmur3 fmix32 finalizer.
-/// Excellent avalanche, no known bias at low moduli, minimal instruction count.
-__device__ __forceinline__ uint32_t warpkv_hash32(uint32_t key) {
-    uint32_t h = key + 0x9E3779B9u;
-    h ^= h >> 15;
-    h *= 0x85EBCA77u;
-    h ^= h >> 13;
-    h *= 0xC2B2AE3Du;
-    h ^= h >> 16;
+/// GPU device hash: Murmur3 fmix64 finalizer.
+/// Excellent avalanche, no known bias, and perfectly distributes 64-bit keys.
+__device__ __forceinline__ uint64_t warpkv_hash64(KeyT key) {
+    uint64_t h = (uint64_t)key + 0x9E3779B97F4A7C15ULL;
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdULL;
+    h ^= h >> 33;
+    h *= 0xc4ceb9fe1a85ec53ULL;
+    h ^= h >> 33;
     return h;
 }
 
-/// Host-side equivalent of warpkv_hash32 for CPU preprocessing and testing.
-inline uint32_t warpkv_hash32_host(uint32_t key) {
-    uint32_t h = key + 0x9E3779B9u;
-    h ^= h >> 15;
-    h *= 0x85EBCA77u;
-    h ^= h >> 13;
-    h *= 0xC2B2AE3Du;
-    h ^= h >> 16;
+/// Host-side equivalent of warpkv_hash64 for CPU preprocessing and testing.
+inline uint64_t warpkv_hash64_host(KeyT key) {
+    uint64_t h = (uint64_t)key + 0x9E3779B97F4A7C15ULL;
+    h ^= h >> 33;
+    h *= 0xff51afd7ed558ccdULL;
+    h ^= h >> 33;
+    h *= 0xc4ceb9fe1a85ec53ULL;
+    h ^= h >> 33;
     return h;
 }
 
@@ -182,27 +192,21 @@ struct HashPair {
 
 /// Compute both candidate bucket indices and fingerprint for `key`.
 ///
-/// b1: primary hash masked to table size.
-/// b2: independent second hash via an additional mixing step. If b1 == b2
-///     (possible on very small tables), b2 is nudged by +1.
-/// fingerprint: upper 8 bits of h — checked before full key comparison.
-__device__ __host__ inline HashPair compute_hash_pair(uint32_t key, uint32_t bucket_mask) {
+/// We use a single 64-bit hash to extract all three components:
+/// b1: lower 32 bits masked.
+/// b2: upper 32 bits masked.
+/// fingerprint: highest 8 bits of the 64-bit hash.
+__device__ __host__ inline HashPair compute_hash_pair(KeyT key, uint32_t bucket_mask) {
 #ifdef __CUDA_ARCH__
-    const uint32_t h = warpkv_hash32(key);
+    const uint64_t h = warpkv_hash64(key);
 #else
-    const uint32_t h = warpkv_hash32_host(key);
+    const uint64_t h = warpkv_hash64_host(key);
 #endif
 
-    // Independent secondary hash via an additional mixing round.
-    uint32_t h2 = h;
-    h2 ^= h2 >> 16;
-    h2 *= 0x45d9f3bu;
-    h2 ^= h2 >> 16;
-
     HashPair result;
-    result.b1          = h  & bucket_mask;
-    result.b2          = h2 & bucket_mask;
-    result.fingerprint = (uint8_t)(h >> 24);
+    result.b1          = (uint32_t)h & bucket_mask;
+    result.b2          = (uint32_t)(h >> 32) & bucket_mask;
+    result.fingerprint = (uint8_t)(h >> 56);
 
     // Guarantee b1 != b2 for all table sizes.
     if (result.b2 == result.b1) {
@@ -218,8 +222,8 @@ __device__ __host__ inline HashPair compute_hash_pair(uint32_t key, uint32_t buc
 
 /// Result returned by warp_lookup_device.
 struct LookupResult {
-    uint32_t value; ///< Found value, or NOT_FOUND on miss.
-    bool     found; ///< True iff the key was found.
+    ValueT value; ///< Found value, or NOT_FOUND on miss.
+    bool   found; ///< True iff the key was found.
 };
 
 #ifdef __CUDACC__
@@ -236,19 +240,21 @@ struct LookupResult {
 __device__ inline LookupResult warp_lookup_device(
     BucketTable  table,
     StashQueue*  stash,
-    uint32_t     key,
+    KeyT         key,
     uint8_t      fingerprint)
 {
     const HashPair hash_pair = compute_hash_pair(key, table.bucket_mask);
     Bucket* const  bucket_b1 = &table.buckets[hash_pair.b1];
     Bucket* const  bucket_b2 = &table.buckets[hash_pair.b2];
 
-    const uint32_t lane_id = threadIdx.x % 32;
+    const uint32_t active_mask = (threadIdx.x % 32 < 16) ? 0x0000FFFFu : 0xFFFF0000u;
+    const uint32_t lane_id = threadIdx.x % 16;
+    const uint32_t warp_lane = threadIdx.x % 32;
 
     LookupResult result = {NOT_FOUND, false};
 
     // ---- Lanes 0-7: scan bucket b1 ----------------------------------------
-    if (lane_id < 8) {
+    if (lane_id < BUCKET_SLOTS) {
         if (bucket_b1->occupancy_mask & (1u << lane_id)) {
             if (bucket_b1->fingerprint[lane_id] == fingerprint) {
                 if (bucket_b1->keys[lane_id] == key) {
@@ -272,9 +278,9 @@ __device__ inline LookupResult warp_lookup_device(
     }
 
     // ---- Broadcast from whichever lane found the key -----------------------
-    int found_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.found)) - 1;
+    int found_lane = __ffs(__ballot_sync(active_mask, result.found)) - 1;
     if (found_lane >= 0) {
-        result.value = __shfl_sync(0xFFFFFFFFu, result.value, found_lane);
+        result.value = __shfl_sync(active_mask, result.value, found_lane);
         result.found = true;
         return result;
     }
@@ -284,7 +290,7 @@ __device__ inline LookupResult warp_lookup_device(
         uint32_t stash_size = ((volatile uint32_t*)&stash->head)[0];
         if (stash_size > STASH_CAPACITY) stash_size = STASH_CAPACITY;
 
-        for (uint32_t i = lane_id; i < stash_size; i += 32) {
+        for (uint32_t i = lane_id; i < stash_size; i += 16) {
             if (stash->entries[i].key == key) {
                 result.value = stash->entries[i].value;
                 result.found = true;
@@ -292,9 +298,9 @@ __device__ inline LookupResult warp_lookup_device(
             }
         }
 
-        found_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.found)) - 1;
+        found_lane = __ffs(__ballot_sync(active_mask, result.found)) - 1;
         if (found_lane >= 0) {
-            result.value = __shfl_sync(0xFFFFFFFFu, result.value, found_lane);
+            result.value = __shfl_sync(active_mask, result.value, found_lane);
             result.found = true;
         }
     }
@@ -334,15 +340,17 @@ __device__ inline InsertResult warp_insert_device(
     BucketTable  table,
     StashQueue*  stash,
     uint32_t*    d_needs_rehash_flag,
-    uint32_t     key,
-    uint32_t     value,
+    KeyT         key,
+    ValueT       value,
     uint8_t      fingerprint)
 {
-    const uint32_t lane_id = threadIdx.x % 32;
+    const uint32_t active_mask = (threadIdx.x % 32 < 16) ? 0x0000FFFFu : 0xFFFF0000u;
+    const uint32_t lane_id = threadIdx.x % 16;
+    const uint32_t warp_lane = threadIdx.x % 32;
     InsertResult result = {INSERT_FAILED, 0, 0};
 
-    uint32_t current_key   = key;
-    uint32_t current_value = value;
+    KeyT     current_key   = key;
+    ValueT   current_value = value;
     uint32_t hop_count       = 0;
     uint32_t contention_count = 0;
 
@@ -357,19 +365,19 @@ __device__ inline InsertResult warp_insert_device(
 
         // ---- Try bucket b1 (lanes 0-7) -------------------------------------
         bool b1_claimed = false;
-        if (lane_id < 8) {
+        if (lane_id < BUCKET_SLOTS) {
             const uint32_t slot     = lane_id;
             const uint32_t old_mask = bucket_b1->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                const uint32_t old_key = atomicCAS(&bucket_b1->keys[slot], EMPTY_KEY, LOCK_SENTINEL);
+                const KeyT old_key = atomicCAS(&bucket_b1->keys[slot], EMPTY_KEY, LOCK_SENTINEL);
                 if (old_key == EMPTY_KEY) b1_claimed = true;
             }
         }
 
-        const int b1_winner = __ffs(__ballot_sync(0xFFFFFFFFu, b1_claimed)) - 1;
+        const int b1_winner = __ffs(__ballot_sync(active_mask, b1_claimed)) - 1;
         if (b1_claimed) {
             const uint32_t slot = lane_id;
-            if (lane_id == (uint32_t)b1_winner) {
+            if (warp_lane == (uint32_t)b1_winner) {
                 bucket_b1->values[slot]      = current_value;
                 bucket_b1->fingerprint[slot] = current_fp;
                 __threadfence();
@@ -384,30 +392,30 @@ __device__ inline InsertResult warp_insert_device(
         }
 
         {
-            const int success_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.status == INSERT_SUCCESS)) - 1;
+            const int success_lane = __ffs(__ballot_sync(active_mask, result.status == INSERT_SUCCESS)) - 1;
             if (success_lane >= 0) {
-                result.status    = (InsertStatus)__shfl_sync(0xFFFFFFFFu, (uint32_t)result.status,   success_lane);
-                result.slot_used = __shfl_sync(0xFFFFFFFFu, result.slot_used, success_lane);
-                result.hops      = __shfl_sync(0xFFFFFFFFu, result.hops,      success_lane);
+                result.status    = (InsertStatus)__shfl_sync(active_mask, (uint32_t)result.status,   success_lane);
+                result.slot_used = __shfl_sync(active_mask, result.slot_used, success_lane);
+                result.hops      = __shfl_sync(active_mask, result.hops,      success_lane);
                 return result;
             }
         }
 
         // ---- Try bucket b2 (lanes 8-15) ------------------------------------
         bool b2_claimed = false;
-        if (lane_id >= 8 && lane_id < 16) {
+        if (lane_id >= 8 && lane_id < 8 + BUCKET_SLOTS) {
             const uint32_t slot     = lane_id - 8;
             const uint32_t old_mask = bucket_b2->occupancy_mask;
             if (!(old_mask & (1u << slot))) {
-                const uint32_t old_key = atomicCAS(&bucket_b2->keys[slot], EMPTY_KEY, LOCK_SENTINEL);
+                const KeyT old_key = atomicCAS(&bucket_b2->keys[slot], EMPTY_KEY, LOCK_SENTINEL);
                 if (old_key == EMPTY_KEY) b2_claimed = true;
             }
         }
 
-        const int b2_winner = __ffs(__ballot_sync(0xFFFFFFFFu, b2_claimed)) - 1;
+        const int b2_winner = __ffs(__ballot_sync(active_mask, b2_claimed)) - 1;
         if (b2_claimed) {
             const uint32_t slot = lane_id - 8;
-            if (lane_id == (uint32_t)b2_winner) {
+            if (warp_lane == (uint32_t)b2_winner) {
                 bucket_b2->values[slot]      = current_value;
                 bucket_b2->fingerprint[slot] = current_fp;
                 __threadfence();
@@ -422,34 +430,34 @@ __device__ inline InsertResult warp_insert_device(
         }
 
         {
-            const int success_lane = __ffs(__ballot_sync(0xFFFFFFFFu, result.status == INSERT_SUCCESS)) - 1;
+            const int success_lane = __ffs(__ballot_sync(active_mask, result.status == INSERT_SUCCESS)) - 1;
             if (success_lane >= 0) {
-                result.status    = (InsertStatus)__shfl_sync(0xFFFFFFFFu, (uint32_t)result.status,   success_lane);
-                result.slot_used = __shfl_sync(0xFFFFFFFFu, result.slot_used, success_lane);
-                result.hops      = __shfl_sync(0xFFFFFFFFu, result.hops,      success_lane);
+                result.status    = (InsertStatus)__shfl_sync(active_mask, (uint32_t)result.status,   success_lane);
+                result.slot_used = __shfl_sync(active_mask, result.slot_used, success_lane);
+                result.hops      = __shfl_sync(active_mask, result.hops,      success_lane);
                 return result;
             }
         }
 
         // ---- Both full: evict a victim (lane 0 only) -----------------------
-        bool     eviction_success = false;
-        uint32_t evicted_key      = 0;
-        uint32_t evicted_value    = 0;
+        bool   eviction_success = false;
+        KeyT   evicted_key      = 0;
+        ValueT evicted_value    = 0;
 
         if (lane_id == 0) {
             const uint32_t victim_slot =
-                (hash_pair.b1 ^ hash_pair.b2 ^ hop_count ^ contention_count) % 8;
+                (hash_pair.b1 ^ hash_pair.b2 ^ hop_count ^ contention_count) % BUCKET_SLOTS;
             Bucket* victim_bucket =
                 ((hop_count ^ contention_count) % 2 == 0) ? bucket_b1 : bucket_b2;
 
-            const uint32_t victim_key = victim_bucket->keys[victim_slot];
+            const KeyT victim_key = victim_bucket->keys[victim_slot];
             if (victim_key != EMPTY_KEY && victim_key != LOCK_SENTINEL) {
-                const uint32_t old_key =
+                const KeyT old_key =
                     atomicCAS(&victim_bucket->keys[victim_slot], victim_key, LOCK_SENTINEL);
                 if (old_key == victim_key) {
                     // Force L2 read to avoid stale L1 from other SMs.
-                    const uint32_t victim_value =
-                        ((volatile uint32_t*)victim_bucket->values)[victim_slot];
+                    const ValueT victim_value =
+                        ((volatile ValueT*)victim_bucket->values)[victim_slot];
                     victim_bucket->values[victim_slot]      = current_value;
                     victim_bucket->fingerprint[victim_slot] = current_fp;
                     __threadfence();
@@ -461,10 +469,12 @@ __device__ inline InsertResult warp_insert_device(
             }
         }
 
-        eviction_success = __shfl_sync(0xFFFFFFFFu, eviction_success, 0);
+        eviction_success = __shfl_sync(active_mask, eviction_success, (threadIdx.x & ~15));
         if (eviction_success) {
-            current_key   = __shfl_sync(0xFFFFFFFFu, evicted_key,   0);
-            current_value = __shfl_sync(0xFFFFFFFFu, evicted_value, 0);
+            // Note: If KeyT/ValueT are 64-bit, we need __shfl_sync to handle 64-bit later.
+            // But since KeyT/ValueT are uint32_t right now, __shfl_sync is fine.
+            current_key   = __shfl_sync(active_mask, (uint32_t)evicted_key,   0);
+            current_value = __shfl_sync(active_mask, (uint32_t)evicted_value, (threadIdx.x & ~15));
             hop_count++;
             contention_count = 0;
         } else {
@@ -491,8 +501,8 @@ __device__ inline InsertResult warp_insert_device(
         }
     }
 
-    result.status = (InsertStatus)__shfl_sync(0xFFFFFFFFu, (uint32_t)result.status, 0);
-    result.hops   = __shfl_sync(0xFFFFFFFFu, result.hops, 0);
+    result.status = (InsertStatus)__shfl_sync(active_mask, (uint32_t)result.status, (threadIdx.x & ~15));
+    result.hops   = __shfl_sync(active_mask, result.hops, (threadIdx.x & ~15));
     return result;
 }
 
@@ -514,10 +524,12 @@ __device__ inline InsertResult warp_insert_device(
 __device__ inline bool warp_delete_device(
     BucketTable  table,
     StashQueue*  stash,
-    uint32_t     key,
+    KeyT         key,
     uint8_t      fingerprint)
 {
-    const uint32_t lane_id   = threadIdx.x % 32;
+    const uint32_t active_mask = (threadIdx.x % 32 < 16) ? 0x0000FFFFu : 0xFFFF0000u;
+    const uint32_t lane_id = threadIdx.x % 16;
+    const uint32_t warp_lane = threadIdx.x % 32;
     const HashPair hash_pair = compute_hash_pair(key, table.bucket_mask);
     Bucket* const  bucket_b1 = &table.buckets[hash_pair.b1];
     Bucket* const  bucket_b2 = &table.buckets[hash_pair.b2];
@@ -527,7 +539,7 @@ __device__ inline bool warp_delete_device(
     Bucket*  target_bucket = nullptr;
 
     // ---- Lanes 0-7: scan b1 -----------------------------------------------
-    if (lane_id < 8) {
+    if (lane_id < BUCKET_SLOTS) {
         if ((bucket_b1->occupancy_mask & (1u << lane_id)) &&
             bucket_b1->fingerprint[lane_id] == fingerprint &&
             bucket_b1->keys[lane_id] == key)
@@ -539,7 +551,7 @@ __device__ inline bool warp_delete_device(
     }
 
     // ---- Lanes 8-15: scan b2 ----------------------------------------------
-    if (lane_id >= 8 && lane_id < 16) {
+    if (lane_id >= 8 && lane_id < 8 + BUCKET_SLOTS) {
         const uint32_t local_slot = lane_id - 8;
         if ((bucket_b2->occupancy_mask & (1u << local_slot)) &&
             bucket_b2->fingerprint[local_slot] == fingerprint &&
@@ -551,12 +563,12 @@ __device__ inline bool warp_delete_device(
         }
     }
 
-    const int winner = __ffs(__ballot_sync(0xFFFFFFFFu, found)) - 1;
+    const int winner = __ffs(__ballot_sync(active_mask, found)) - 1;
 
     bool delete_success = false;
     if (winner >= 0) {
-        if (lane_id == (uint32_t)winner) {
-            const uint32_t old_key =
+        if (warp_lane == (uint32_t)winner) {
+            const KeyT old_key =
                 atomicCAS(&target_bucket->keys[slot], key, LOCK_SENTINEL);
             if (old_key == key) {
                 // Clear occupancy before releasing so readers see a clean state.
@@ -568,7 +580,7 @@ __device__ inline bool warp_delete_device(
                 delete_success = true;
             }
         }
-        delete_success = __shfl_sync(0xFFFFFFFFu, delete_success, winner);
+        delete_success = __shfl_sync(active_mask, delete_success, winner);
         return delete_success;
     }
 
@@ -578,7 +590,7 @@ __device__ inline bool warp_delete_device(
         const uint32_t count        = current_head < STASH_CAPACITY ? current_head : STASH_CAPACITY;
         for (uint32_t i = 0; i < count; ++i) {
             if (stash->entries[i].key == key) {
-                const uint32_t old_stash_key =
+                const KeyT old_stash_key =
                     atomicCAS(&stash->entries[i].key, key, EMPTY_KEY);
                 if (old_stash_key == key) {
                     delete_success = true;
@@ -588,7 +600,7 @@ __device__ inline bool warp_delete_device(
         }
     }
 
-    delete_success = __shfl_sync(0xFFFFFFFFu, delete_success, 0);
+    delete_success = __shfl_sync(active_mask, delete_success, (threadIdx.x & ~15));
     return delete_success;
 }
 

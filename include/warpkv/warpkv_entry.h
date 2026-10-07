@@ -24,8 +24,8 @@
 extern "C" __global__ void warpkv_lookup_kernel_c(
     warpkv::BucketTable          table,
     warpkv::StashQueue*          d_stash,
-    const uint32_t* __restrict__ d_keys,
-    uint32_t*                    d_values_out,
+    const warpkv::KeyT* __restrict__ d_keys,
+    warpkv::ValueT*              d_values_out,
     uint32_t*                    d_found,
     uint32_t                     num_keys);
 
@@ -33,15 +33,15 @@ extern "C" __global__ void warpkv_insert_kernel_c(
     warpkv::BucketTable          table,
     warpkv::StashQueue*          d_stash,
     uint32_t*                    d_needs_rehash_flag,
-    const uint32_t* __restrict__ d_keys,
-    const uint32_t* __restrict__ d_values,
+    const warpkv::KeyT* __restrict__ d_keys,
+    const warpkv::ValueT* __restrict__ d_values,
     uint32_t*                    d_statuses_out,
     uint32_t                     num_keys);
 
 extern "C" __global__ void warpkv_delete_kernel_c(
     warpkv::BucketTable          table,
     warpkv::StashQueue*          d_stash,
-    const uint32_t* __restrict__ d_keys,
+    const warpkv::KeyT* __restrict__ d_keys,
     uint32_t*                    d_deleted_out,
     uint32_t                     num_keys);
 

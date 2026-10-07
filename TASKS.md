@@ -44,11 +44,44 @@
 
 ---
 
-## Phase 2+3: Type System + Bucket Layout Redesign
-*Status: PENDING (blocked on Phase 1)*
+## Phase 2 & 3: 64-bit Type System + Half-Warp Optimization
+*Status: IN PROGRESS*
+
+### Sub-Phase 2.1: Type Abstraction (Plumbing)
+- [x] Define `KeyT` and `ValueT` in `warpkv_device.cuh` (default to `uint32_t`).
+- [x] Refactor `Bucket`, `StashEntry`, and constants to use `KeyT`/`ValueT`.
+- [x] Refactor GPU kernel signatures and host batch structs.
+- [x] Refactor `WarpKVEngine` buffers and submit API.
+- [x] Update tests to use abstract types.
+- [x] Verify: Tests pass with exactly identical binary behavior.
+
+### Sub-Phase 2.2: 64-bit Hash Function Upgrade
+- [x] Implement `warpkv_hash64` (64-bit avalanche/mixer).
+- [x] Update `compute_hash_pair` to consume 64-bit hash.
+- [x] Verify: Distribution tests and correctness tests pass.
+
+### Sub-Phase 2.3: 7-Slot Layout & 64-bit Switch
+- [x] Switch `KeyT = uint64_t` and `ValueT = uint64_t`.
+- [x] Redesign `Bucket` to 7 slots (128 bytes total).
+- [x] Update bucket scan loops from 8 to 7 slots.
+- [x] Update Python bindings to `uint64`.
+- [x] Verify: 64-bit keys/values functional, cache-line alignment preserved.
+
+### Sub-Phase 3.1: Half-Warp Compute Optimization
+- [x] Change dispatch: 2 Keys per 32-thread Warp.
+- [x] Lanes 0-15 process Key A, Lanes 16-31 process Key B.
+- [x] Update lane indexing math in lookup, insert, and delete.
+- [x] Verify: 87.5% compute utilization, basic functionality passes.
+
+### Sub-Phase 3.2: Sub-Warp Synchronization & Stash Polish
+- [x] Update `__ballot_sync` / `__shfl_sync` masks to `0x0000FFFF` and `0xFFFF0000`.
+- [x] Parallelize stash scan cooperatively across 16 threads.
+- [x] Verify: `test_engine_concurrent` passes (no deadlocks or races).
+
+---
 
 ## Phase 4: PyTorch Integration
 *Status: PENDING (blocked on Phase 2+3)*
 
 ## Phase 5: Async CPU API & Dynamic Batching
-*Status: PENDING (blocked on Phase 1)*
+*Status: PENDING (blocked on Phase 2+3)*

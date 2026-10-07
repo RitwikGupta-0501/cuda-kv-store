@@ -35,7 +35,7 @@ struct PipelineStreams {
 // LookupFutureResult — value type returned by async lookup futures.
 // ============================================================================
 struct LookupFutureResult {
-    std::vector<uint32_t> values; ///< Output values, parallel to input keys.
+    std::vector<ValueT> values; ///< Output values, parallel to input keys.
 };
 
 class WarpKVEngine {
@@ -43,16 +43,16 @@ private:
     static constexpr uint32_t NUM_SLOTS = 3;
 
     // Pinned host memory
-    uint32_t*     h_keys_in[NUM_SLOTS]         = {nullptr};
-    uint32_t*     h_values_in[NUM_SLOTS]        = {nullptr};
-    uint32_t*     h_values_out[NUM_SLOTS]       = {nullptr};
+    KeyT*         h_keys_in[NUM_SLOTS]          = {nullptr};
+    ValueT*       h_values_in[NUM_SLOTS]        = {nullptr};
+    ValueT*       h_values_out[NUM_SLOTS]       = {nullptr};
     InsertStatus* h_insert_statuses[NUM_SLOTS]  = {nullptr};
     uint32_t*     h_lookup_found[NUM_SLOTS]     = {nullptr};
 
     // Device memory
-    uint32_t*     d_keys_in[NUM_SLOTS]          = {nullptr};
-    uint32_t*     d_values_in[NUM_SLOTS]        = {nullptr};
-    uint32_t*     d_values_out[NUM_SLOTS]       = {nullptr};
+    KeyT*         d_keys_in[NUM_SLOTS]          = {nullptr};
+    ValueT*       d_values_in[NUM_SLOTS]        = {nullptr};
+    ValueT*       d_values_out[NUM_SLOTS]       = {nullptr};
     InsertStatus* d_insert_statuses[NUM_SLOTS]  = {nullptr};
     uint32_t*     d_lookup_found[NUM_SLOTS]     = {nullptr};
 
@@ -122,40 +122,40 @@ public:
     // =========================================================================
 
     /// Insert a batch of (key, value) pairs asynchronously.
-    /// @param keys    Host pointer to uint32_t key array.
-    /// @param values  Host pointer to uint32_t value array.
+    /// @param keys    Host pointer to KeyT array.
+    /// @param values  Host pointer to ValueT array.
     /// @param count   Number of key-value pairs (must be <= BATCH_SIZE).
     /// @return Future that completes when the GPU pipeline finishes.
     std::future<void> submit_insert_batch(
-        const uint32_t* keys,
-        const uint32_t* values,
-        uint32_t        count);
+        const KeyT* keys,
+        const ValueT* values,
+        uint32_t      count);
 
     /// Look up a batch of keys asynchronously.
-    /// @param keys   Host pointer to uint32_t key array.
+    /// @param keys   Host pointer to KeyT array.
     /// @param count  Number of keys (must be <= BATCH_SIZE).
     /// @return Future containing a LookupFutureResult with the output values.
     std::future<LookupFutureResult> submit_lookup_batch(
-        const uint32_t* keys,
-        uint32_t        count);
+        const KeyT* keys,
+        uint32_t    count);
 
     /// Look up a batch of keys asynchronously writing results into user-supplied buffer.
-    /// @param keys        Host pointer to uint32_t key array.
-    /// @param values_out  Host pointer to uint32_t output buffer (must be valid until future completes).
+    /// @param keys        Host pointer to KeyT array.
+    /// @param values_out  Host pointer to ValueT output buffer (must be valid until future completes).
     /// @param count       Number of keys (must be <= BATCH_SIZE).
     /// @return Future that completes when D->H copy to values_out finishes.
     std::future<void> submit_lookup_batch(
-        const uint32_t* keys,
-        uint32_t*       values_out,
-        uint32_t        count);
+        const KeyT* keys,
+        ValueT*     values_out,
+        uint32_t    count);
 
     /// Delete a batch of keys asynchronously.
-    /// @param keys   Host pointer to uint32_t key array.
+    /// @param keys   Host pointer to KeyT array.
     /// @param count  Number of keys (must be <= BATCH_SIZE).
     /// @return Future that completes when the GPU pipeline finishes.
     std::future<void> submit_delete_batch(
-        const uint32_t* keys,
-        uint32_t        count);
+        const KeyT* keys,
+        uint32_t    count);
 
     // =========================================================================
     // Synchronous convenience wrappers (blocking)
@@ -168,20 +168,20 @@ public:
 
     /// Blocking insert — equivalent to submit_insert_batch(...).get().
     void submit_insert_batch_sync(
-        const uint32_t* keys,
-        const uint32_t* values,
-        uint32_t        count);
+        const KeyT* keys,
+        const ValueT* values,
+        uint32_t      count);
 
     /// Blocking lookup — writes results directly into values_out.
     void submit_lookup_batch_sync(
-        const uint32_t* keys,
-        uint32_t*       values_out,
-        uint32_t        count);
+        const KeyT* keys,
+        ValueT*     values_out,
+        uint32_t    count);
 
     /// Blocking delete — equivalent to submit_delete_batch(...).get().
     void submit_delete_batch_sync(
-        const uint32_t* keys,
-        uint32_t        count);
+        const KeyT* keys,
+        uint32_t    count);
 
     /// Wait for all in-flight pipelines to drain.
     void sync_all();

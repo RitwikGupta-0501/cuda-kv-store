@@ -32,25 +32,25 @@ static __global__ void warp_insert_kernel(
     BucketTable          table,
     StashQueue*          stash,
     uint32_t*            d_needs_rehash_flag,
-    const uint32_t* __restrict__ keys,
-    const uint32_t* __restrict__ values,
+    const KeyT* __restrict__ keys,
+    const ValueT* __restrict__ values,
     InsertStatus*        statuses,
     uint32_t*            hops,
     uint32_t             num_keys)
 {
-    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    const uint32_t key_idx = blockIdx.x * (blockDim.x / 16) + (threadIdx.x / 16);
     if (key_idx >= num_keys) return;
 
-    const uint32_t key = keys[key_idx];
+    const KeyT key = keys[key_idx];
     if (key == EMPTY_KEY) return; // Key 0 is reserved and cannot be inserted.
 
-    const uint32_t value = values[key_idx];
+    const ValueT value = values[key_idx];
     const uint8_t  fp    = compute_hash_pair(key, table.bucket_mask).fingerprint;
 
     const InsertResult result =
         warp_insert_device(table, stash, d_needs_rehash_flag, key, value, fp);
 
-    if ((threadIdx.x % 32) == 0) {
+    if ((threadIdx.x % 16) == 0) {
         statuses[key_idx] = result.status;
         if (hops) hops[key_idx] = result.hops;
     }
@@ -63,8 +63,8 @@ static __global__ void warp_insert_kernel(
 // ============================================================================
 
 struct InsertBatch {
-    uint32_t*     h_keys;     ///< Host input: keys to insert
-    uint32_t*     h_values;   ///< Host input: corresponding values
+    KeyT*         h_keys;     ///< Host input: keys to insert
+    ValueT*       h_values;   ///< Host input: corresponding values
     InsertStatus* h_statuses; ///< Host output: per-key InsertStatus
     uint32_t*     h_hops;     ///< Host output: eviction hop count (may be nullptr)
     uint32_t      num_keys;

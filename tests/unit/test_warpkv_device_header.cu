@@ -37,10 +37,10 @@ __global__ void custom_kernel_with_device_lookup(
 {
     using namespace warpkv;
 
-    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    const KeyT key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
     if (key_idx >= num_keys) return;
 
-    const uint32_t key = d_query_keys[key_idx];
+    const KeyT key = d_query_keys[key_idx];
     const uint8_t  fp  = compute_hash_pair(key, table.bucket_mask).fingerprint;
     const LookupResult result = warp_lookup_device(table, stash, key, fp);
 
@@ -60,11 +60,11 @@ __global__ void custom_kernel_with_device_insert(
 {
     using namespace warpkv;
 
-    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    const KeyT key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
     if (key_idx >= num_keys) return;
 
-    const uint32_t key   = d_keys[key_idx];
-    const uint32_t value = d_values[key_idx];
+    const KeyT key   = d_keys[key_idx];
+    const ValueT value = d_values[key_idx];
     if (key == EMPTY_KEY) return;
 
     const uint8_t      fp     = compute_hash_pair(key, table.bucket_mask).fingerprint;

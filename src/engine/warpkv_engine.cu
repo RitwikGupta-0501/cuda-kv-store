@@ -117,15 +117,15 @@ void WarpKVEngine::init(uint32_t num_buckets) {
         CUDA_CHECK(cudaEventCreate(&ev_compute[i]));
         CUDA_CHECK(cudaEventCreateWithFlags(&ev_d2h[i], cudaEventDisableTiming));
 
-        CUDA_CHECK(cudaHostAlloc(&h_keys_in[i],         BATCH_SIZE * sizeof(uint32_t),    cudaHostAllocDefault));
-        CUDA_CHECK(cudaHostAlloc(&h_values_in[i],       BATCH_SIZE * sizeof(uint32_t),    cudaHostAllocDefault));
-        CUDA_CHECK(cudaHostAlloc(&h_values_out[i],      BATCH_SIZE * sizeof(uint32_t),    cudaHostAllocDefault));
+        CUDA_CHECK(cudaHostAlloc(&h_keys_in[i],         BATCH_SIZE * sizeof(KeyT),    cudaHostAllocDefault));
+        CUDA_CHECK(cudaHostAlloc(&h_values_in[i],       BATCH_SIZE * sizeof(ValueT),    cudaHostAllocDefault));
+        CUDA_CHECK(cudaHostAlloc(&h_values_out[i],      BATCH_SIZE * sizeof(ValueT),    cudaHostAllocDefault));
         CUDA_CHECK(cudaHostAlloc(&h_insert_statuses[i], BATCH_SIZE * sizeof(InsertStatus), cudaHostAllocDefault));
         CUDA_CHECK(cudaHostAlloc(&h_lookup_found[i],    BATCH_SIZE * sizeof(uint32_t),    cudaHostAllocDefault));
 
-        CUDA_CHECK(cudaMalloc(&d_keys_in[i],         BATCH_SIZE * sizeof(uint32_t)));
-        CUDA_CHECK(cudaMalloc(&d_values_in[i],       BATCH_SIZE * sizeof(uint32_t)));
-        CUDA_CHECK(cudaMalloc(&d_values_out[i],      BATCH_SIZE * sizeof(uint32_t)));
+        CUDA_CHECK(cudaMalloc(&d_keys_in[i],         BATCH_SIZE * sizeof(KeyT)));
+        CUDA_CHECK(cudaMalloc(&d_values_in[i],       BATCH_SIZE * sizeof(ValueT)));
+        CUDA_CHECK(cudaMalloc(&d_values_out[i],      BATCH_SIZE * sizeof(ValueT)));
         CUDA_CHECK(cudaMalloc(&d_insert_statuses[i], BATCH_SIZE * sizeof(InsertStatus)));
         CUDA_CHECK(cudaMalloc(&d_lookup_found[i],    BATCH_SIZE * sizeof(uint32_t)));
     }
@@ -149,8 +149,8 @@ void WarpKVEngine::build_graphs() {
         // ---- INSERT GRAPH --------------------------------------------------
         CUDA_CHECK(cudaStreamBeginCapture(streams[slot].h2d, cudaStreamCaptureModeGlobal));
 
-        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot],   h_keys_in[slot],   BATCH_SIZE * sizeof(uint32_t), cudaMemcpyHostToDevice, streams[slot].h2d));
-        CUDA_CHECK(cudaMemcpyAsync(d_values_in[slot], h_values_in[slot], BATCH_SIZE * sizeof(uint32_t), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot],   h_keys_in[slot],   BATCH_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaMemcpyAsync(d_values_in[slot], h_values_in[slot], BATCH_SIZE * sizeof(ValueT), cudaMemcpyHostToDevice, streams[slot].h2d));
         CUDA_CHECK(cudaEventRecord(ev_h2d[slot], streams[slot].h2d));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
@@ -189,7 +189,7 @@ void WarpKVEngine::build_graphs() {
         // ---- LOOKUP GRAPH --------------------------------------------------
         CUDA_CHECK(cudaStreamBeginCapture(streams[slot].h2d, cudaStreamCaptureModeGlobal));
 
-        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], BATCH_SIZE * sizeof(uint32_t), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], BATCH_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
         CUDA_CHECK(cudaEventRecord(ev_h2d[slot], streams[slot].h2d));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
@@ -199,7 +199,7 @@ void WarpKVEngine::build_graphs() {
         CUDA_CHECK(cudaEventRecord(ev_compute[slot], streams[slot].compute));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].d2h, ev_compute[slot], 0));
-        CUDA_CHECK(cudaMemcpyAsync(h_values_out[slot],    d_values_out[slot],   BATCH_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost, streams[slot].d2h));
+        CUDA_CHECK(cudaMemcpyAsync(h_values_out[slot],    d_values_out[slot],   BATCH_SIZE * sizeof(ValueT), cudaMemcpyDeviceToHost, streams[slot].d2h));
         CUDA_CHECK(cudaMemcpyAsync(h_lookup_found[slot],  d_lookup_found[slot], BATCH_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost, streams[slot].d2h));
         CUDA_CHECK(cudaEventRecord(ev_d2h[slot], streams[slot].d2h));
 
@@ -226,7 +226,7 @@ void WarpKVEngine::build_graphs() {
         // ---- DELETE GRAPH --------------------------------------------------
         CUDA_CHECK(cudaStreamBeginCapture(streams[slot].h2d, cudaStreamCaptureModeGlobal));
 
-        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], BATCH_SIZE * sizeof(uint32_t), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], BATCH_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
         CUDA_CHECK(cudaEventRecord(ev_h2d[slot], streams[slot].h2d));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
@@ -477,8 +477,8 @@ static std::future<LookupFutureResult> make_lookup_future(
 // ============================================================================
 
 std::future<void> WarpKVEngine::submit_insert_batch(
-    const uint32_t* keys,
-    const uint32_t* values,
+    const KeyT* keys,
+    const ValueT* values,
     uint32_t        count)
 {
     if (count == 0) {
@@ -525,8 +525,8 @@ std::future<void> WarpKVEngine::submit_insert_batch(
         active_epoch[slot] = epoch;
     }
 
-    std::memcpy(h_keys_in[slot],   keys,   count * sizeof(uint32_t));
-    std::memcpy(h_values_in[slot], values, count * sizeof(uint32_t));
+    std::memcpy(h_keys_in[slot],   keys,   count * sizeof(KeyT));
+    std::memcpy(h_values_in[slot], values, count * sizeof(ValueT));
 
     // Pad remainder with EMPTY_KEY so the fixed-size kernel ignores them.
     for (uint32_t i = count; i < BATCH_SIZE; ++i) {
@@ -548,7 +548,7 @@ std::future<void> WarpKVEngine::submit_insert_batch(
 // ============================================================================
 
 std::future<LookupFutureResult> WarpKVEngine::submit_lookup_batch(
-    const uint32_t* keys,
+    const KeyT* keys,
     uint32_t        count)
 {
     if (count == 0) {
@@ -577,7 +577,7 @@ std::future<LookupFutureResult> WarpKVEngine::submit_lookup_batch(
         active_epoch[slot] = epoch;
     }
 
-    std::memcpy(h_keys_in[slot], keys, count * sizeof(uint32_t));
+    std::memcpy(h_keys_in[slot], keys, count * sizeof(KeyT));
     for (uint32_t i = count; i < BATCH_SIZE; ++i) {
         h_keys_in[slot][i] = EMPTY_KEY;
     }
@@ -592,8 +592,8 @@ std::future<LookupFutureResult> WarpKVEngine::submit_lookup_batch(
 }
 
 std::future<void> WarpKVEngine::submit_lookup_batch(
-    const uint32_t* keys,
-    uint32_t*       values_out,
+    const KeyT* keys,
+    ValueT*       values_out,
     uint32_t        count)
 {
     if (count == 0) {
@@ -622,7 +622,7 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
         active_epoch[slot] = epoch;
     }
 
-    std::memcpy(h_keys_in[slot], keys, count * sizeof(uint32_t));
+    std::memcpy(h_keys_in[slot], keys, count * sizeof(KeyT));
     for (uint32_t i = count; i < BATCH_SIZE; ++i) {
         h_keys_in[slot][i] = EMPTY_KEY;
     }
@@ -646,7 +646,7 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
         } while (true);
 
         if (values_out && count > 0) {
-            std::memcpy(values_out, h_out, count * sizeof(uint32_t));
+            std::memcpy(values_out, h_out, count * sizeof(ValueT));
         }
     });
 }
@@ -656,7 +656,7 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
 // ============================================================================
 
 std::future<void> WarpKVEngine::submit_delete_batch(
-    const uint32_t* keys,
+    const KeyT* keys,
     uint32_t        count)
 {
     if (count == 0) {
@@ -685,7 +685,7 @@ std::future<void> WarpKVEngine::submit_delete_batch(
         active_epoch[slot] = epoch;
     }
 
-    std::memcpy(h_keys_in[slot], keys, count * sizeof(uint32_t));
+    std::memcpy(h_keys_in[slot], keys, count * sizeof(KeyT));
     for (uint32_t i = count; i < BATCH_SIZE; ++i) {
         h_keys_in[slot][i] = EMPTY_KEY;
     }
@@ -703,23 +703,23 @@ std::future<void> WarpKVEngine::submit_delete_batch(
 // ============================================================================
 
 void WarpKVEngine::submit_insert_batch_sync(
-    const uint32_t* keys,
-    const uint32_t* values,
+    const KeyT* keys,
+    const ValueT* values,
     uint32_t        count)
 {
     submit_insert_batch(keys, values, count).get();
 }
 
 void WarpKVEngine::submit_lookup_batch_sync(
-    const uint32_t* keys,
-    uint32_t*       values_out,
+    const KeyT* keys,
+    ValueT*       values_out,
     uint32_t        count)
 {
     submit_lookup_batch(keys, values_out, count).get();
 }
 
 void WarpKVEngine::submit_delete_batch_sync(
-    const uint32_t* keys,
+    const KeyT* keys,
     uint32_t        count)
 {
     submit_delete_batch(keys, count).get();

@@ -28,17 +28,17 @@ namespace warpkv {
 static __global__ void warp_lookup_kernel(
     BucketTable  table,
     StashQueue*  stash,
-    const uint32_t* __restrict__ keys,
-    uint32_t*    values,
+    const KeyT* __restrict__ keys,
+    ValueT*      values,
     uint32_t*    found_flags,
     uint32_t     num_keys)
 {
-    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    const uint32_t key_idx = blockIdx.x * (blockDim.x / 16) + (threadIdx.x / 16);
     if (key_idx >= num_keys) return;
 
-    const uint32_t key = keys[key_idx];
+    const KeyT key = keys[key_idx];
     if (key == EMPTY_KEY) {
-        if ((threadIdx.x % 32) == 0) {
+        if ((threadIdx.x % 16) == 0) {
             values[key_idx]      = NOT_FOUND;
             found_flags[key_idx] = 0;
         }
@@ -48,7 +48,7 @@ static __global__ void warp_lookup_kernel(
     const uint8_t fp = compute_hash_pair(key, table.bucket_mask).fingerprint;
     const LookupResult result = warp_lookup_device(table, stash, key, fp);
 
-    if ((threadIdx.x % 32) == 0) {
+    if ((threadIdx.x % 16) == 0) {
         values[key_idx]      = result.value;
         found_flags[key_idx] = result.found ? 1u : 0u;
     }
@@ -61,8 +61,8 @@ static __global__ void warp_lookup_kernel(
 // ============================================================================
 
 struct LookupBatch {
-    uint32_t* h_keys;   ///< Host input: keys to look up
-    uint32_t* h_values; ///< Host output: found values (NOT_FOUND on miss)
+    KeyT*     h_keys;   ///< Host input: keys to look up
+    ValueT*   h_values; ///< Host output: found values (NOT_FOUND on miss)
     uint32_t* h_found;  ///< Host output: 1 if found, 0 if not found
     uint32_t  num_keys;
 };

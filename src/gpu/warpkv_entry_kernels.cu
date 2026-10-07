@@ -69,19 +69,19 @@
 extern "C" __global__ void warpkv_lookup_kernel_c(
     warpkv::BucketTable          table,
     warpkv::StashQueue*          d_stash,
-    const uint32_t* __restrict__ d_keys,
-    uint32_t*                    d_values_out,
+    const warpkv::KeyT* __restrict__ d_keys,
+    warpkv::ValueT*              d_values_out,
     uint32_t*                    d_found,
     uint32_t                     num_keys)
 {
     using namespace warpkv;
 
-    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    const uint32_t key_idx = blockIdx.x * (blockDim.x / 16) + (threadIdx.x / 16);
     if (key_idx >= num_keys) return;
 
-    const uint32_t key = d_keys[key_idx];
+    const KeyT key = d_keys[key_idx];
     if (key == EMPTY_KEY) {
-        if ((threadIdx.x % 32) == 0) {
+        if ((threadIdx.x % 16) == 0) {
             d_values_out[key_idx] = NOT_FOUND;
             d_found[key_idx]      = 0u;
         }
@@ -91,7 +91,7 @@ extern "C" __global__ void warpkv_lookup_kernel_c(
     const uint8_t      fp     = compute_hash_pair(key, table.bucket_mask).fingerprint;
     const LookupResult result = warp_lookup_device(table, d_stash, key, fp);
 
-    if ((threadIdx.x % 32) == 0) {
+    if ((threadIdx.x % 16) == 0) {
         d_values_out[key_idx] = result.value;
         d_found[key_idx]      = result.found ? 1u : 0u;
     }
@@ -105,25 +105,25 @@ extern "C" __global__ void warpkv_insert_kernel_c(
     warpkv::BucketTable          table,
     warpkv::StashQueue*          d_stash,
     uint32_t*                    d_needs_rehash_flag,
-    const uint32_t* __restrict__ d_keys,
-    const uint32_t* __restrict__ d_values,
+    const warpkv::KeyT* __restrict__ d_keys,
+    const warpkv::ValueT* __restrict__ d_values,
     uint32_t*                    d_statuses_out,
     uint32_t                     num_keys)
 {
     using namespace warpkv;
 
-    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    const uint32_t key_idx = blockIdx.x * (blockDim.x / 16) + (threadIdx.x / 16);
     if (key_idx >= num_keys) return;
 
-    const uint32_t key = d_keys[key_idx];
+    const KeyT key = d_keys[key_idx];
     if (key == EMPTY_KEY) return; // reserved key — silently skip
 
-    const uint32_t value  = d_values[key_idx];
+    const ValueT value  = d_values[key_idx];
     const uint8_t  fp     = compute_hash_pair(key, table.bucket_mask).fingerprint;
     const InsertResult result =
         warp_insert_device(table, d_stash, d_needs_rehash_flag, key, value, fp);
 
-    if ((threadIdx.x % 32) == 0) {
+    if ((threadIdx.x % 16) == 0) {
         d_statuses_out[key_idx] = static_cast<uint32_t>(result.status);
     }
 }
@@ -135,25 +135,25 @@ extern "C" __global__ void warpkv_insert_kernel_c(
 extern "C" __global__ void warpkv_delete_kernel_c(
     warpkv::BucketTable          table,
     warpkv::StashQueue*          d_stash,
-    const uint32_t* __restrict__ d_keys,
+    const warpkv::KeyT* __restrict__ d_keys,
     uint32_t*                    d_deleted_out,
     uint32_t                     num_keys)
 {
     using namespace warpkv;
 
-    const uint32_t key_idx = blockIdx.x * (blockDim.x / 32) + (threadIdx.x / 32);
+    const uint32_t key_idx = blockIdx.x * (blockDim.x / 16) + (threadIdx.x / 16);
     if (key_idx >= num_keys) return;
 
     const uint32_t key = d_keys[key_idx];
     if (key == EMPTY_KEY) {
-        if ((threadIdx.x % 32) == 0) d_deleted_out[key_idx] = 0u;
+        if ((threadIdx.x % 16) == 0) d_deleted_out[key_idx] = 0u;
         return;
     }
 
     const uint8_t fp      = compute_hash_pair(key, table.bucket_mask).fingerprint;
     const bool    success = warp_delete_device(table, d_stash, key, fp);
 
-    if ((threadIdx.x % 32) == 0) {
+    if ((threadIdx.x % 16) == 0) {
         d_deleted_out[key_idx] = success ? 1u : 0u;
     }
 }
