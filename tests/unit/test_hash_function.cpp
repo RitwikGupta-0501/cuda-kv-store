@@ -25,13 +25,13 @@ protected:
 // Test 1: Known value test
 TEST_F(WarpKVHashTest, KnownValues) {
     // Test a few known keys to verify correctness
-    EXPECT_EQ(warpkv_hash64_host(0u), warpkv_hash64_host(0u));  // Consistent
-    EXPECT_NE(warpkv_hash64_host(0u), warpkv_hash64_host(1u));  // Different input → different output
+    EXPECT_EQ(warpkv_hash64_host(0ULL), warpkv_hash64_host(0ULL));  // Consistent
+    EXPECT_NE(warpkv_hash64_host(0ULL), warpkv_hash64_host(1ULL));  // Different input → different output
 
     // Test small keys
-    uint64_t hash0 = warpkv_hash64_host(0u);
-    uint64_t hash1 = warpkv_hash64_host(1u);
-    uint64_t hash2 = warpkv_hash64_host(2u);
+    uint64_t hash0 = warpkv_hash64_host(0ULL);
+    uint64_t hash1 = warpkv_hash64_host(1ULL);
+    uint64_t hash2 = warpkv_hash64_host(2ULL);
 
     // All different (with high probability for random keys)
     EXPECT_NE(hash0, hash1);
@@ -50,11 +50,11 @@ TEST_F(WarpKVHashTest, AvalancheProperty) {
     for (int bit = 0; bit < bits_per_hash; ++bit) {
         for (int trial = 0; trial < num_trials; ++trial) {
             // Random key
-            std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
-            uint32_t key1 = dist(rng);
+            std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
+            uint64_t key1 = dist(rng);
 
             // Flip the bit
-            uint32_t key2 = key1 ^ (1u << bit);
+            uint64_t key2 = key1 ^ (1ULL << bit);
 
             // Hash both
             uint64_t hash1 = warpkv_hash64_host(key1);
@@ -64,7 +64,7 @@ TEST_F(WarpKVHashTest, AvalancheProperty) {
 
             // Count which output bits flipped
             for (int out_bit = 0; out_bit < bits_per_hash; ++out_bit) {
-                if (xor_result & (1u << out_bit)) {
+                if (xor_result & (1ULL << out_bit)) {
                     bit_flip_count[out_bit]++;
                 }
             }
@@ -90,9 +90,9 @@ TEST_F(WarpKVHashTest, UniformDistribution) {
     std::vector<int> bucket_count(num_buckets, 0);
 
     // Hash 10K random keys
-    std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
     for (int i = 0; i < num_keys; ++i) {
-        uint32_t key = dist(rng);
+        KeyT key = dist(rng);
         uint64_t hash = warpkv_hash64_host(key);
         uint32_t bucket = hash % num_buckets;
         bucket_count[bucket]++;
@@ -121,10 +121,10 @@ TEST_F(WarpKVHashTest, DecorelationB1NotB2) {
 
     int b1_equals_b2_count = 0;
 
-    std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
 
     for (int i = 0; i < num_keys; ++i) {
-        uint32_t key = dist(rng);
+        KeyT key = dist(rng);
         HashPair pair = compute_hash_pair(key, bucket_mask);
 
         if (pair.b1 == pair.b2) {
@@ -146,10 +146,10 @@ TEST_F(WarpKVHashTest, FingerprintProperties) {
     // Count fingerprint distribution
     std::vector<int> fp_count(256, 0);
 
-    std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
 
     for (int i = 0; i < num_keys; ++i) {
-        uint32_t key = dist(rng);
+        KeyT key = dist(rng);
         HashPair pair = compute_hash_pair(key, 0xFFFFu);
         fp_count[pair.fingerprint]++;
     }
@@ -170,10 +170,10 @@ TEST_F(WarpKVHashTest, FingerprintProperties) {
 
 // Test 6: Consistency (same input always produces same output)
 TEST_F(WarpKVHashTest, Consistency) {
-    std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
 
     for (int i = 0; i < 1000; ++i) {
-        uint32_t key = dist(rng);
+        KeyT key = dist(rng);
         uint64_t hash1 = warpkv_hash64_host(key);
         uint64_t hash2 = warpkv_hash64_host(key);
         uint64_t hash3 = warpkv_hash64_host(key);
@@ -183,25 +183,23 @@ TEST_F(WarpKVHashTest, Consistency) {
     }
 }
 
-// Test 7: Fingerprint false positive rate (3.1% expected for 8-bit fp, 8 slots)
+// Test 7: Fingerprint false positive rate
 TEST_F(WarpKVHashTest, FingerprintFalsePositiveRate) {
-    // Simulate stash lookup scenario:
-    // 8 slots per bucket, 8-bit fingerprints
+    // Simulate lookup scenario:
+    // 8-bit fingerprints
     // P(fingerprint match | key mismatch) = 1/256
-    // Expected FP per 8-slot bucket: 8 * (1/256) = 3.1%
-
     const int num_tests = 100000;
     int false_positives = 0;
 
-    std::uniform_int_distribution<uint32_t> dist(0, UINT32_MAX);
+    std::uniform_int_distribution<uint64_t> dist(0, UINT64_MAX);
 
     for (int test = 0; test < num_tests; ++test) {
         // Generate a random slot key
-        uint32_t slot_key = dist(rng);
+        KeyT slot_key = dist(rng);
         HashPair slot_pair = compute_hash_pair(slot_key, 0xFFFFu);
 
         // Generate a different search key
-        uint32_t search_key = slot_key ^ 0x12345678u;  // Guaranteed different
+        KeyT search_key = slot_key ^ 0x123456789ABCDEF0ULL;  // Guaranteed different
         HashPair search_pair = compute_hash_pair(search_key, 0xFFFFu);
 
         // Check if fingerprints match (this would be a false positive in a real lookup)
@@ -218,7 +216,6 @@ TEST_F(WarpKVHashTest, FingerprintFalsePositiveRate) {
     EXPECT_LT(false_positives, expected_fps * 2)
         << "Fingerprint collision rate is too high (expected ~" << expected_fps << ")";
 }
-
 
 int main(int argc, char** argv) {
     ::testing::InitGoogleTest(&argc, argv);
