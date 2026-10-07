@@ -226,6 +226,20 @@ struct LookupResult {
     bool   found; ///< True iff the key was found.
 };
 
+/// Status codes returned by warp_insert_device.
+enum InsertStatus : uint32_t {
+    INSERT_SUCCESS = 0, ///< Inserted directly into a bucket slot.
+    INSERT_STASHED = 1, ///< Inserted into overflow stash after MAX_EVICTION_HOPS.
+    INSERT_FAILED  = 2, ///< Stash also full — data loss (should not happen).
+};
+
+/// Detailed result of a warp-cooperative insertion.
+struct InsertResult {
+    InsertStatus status;    ///< Outcome of the insertion.
+    uint32_t     slot_used; ///< Slot index used (valid only for INSERT_SUCCESS).
+    uint32_t     hops;      ///< Number of cuckoo eviction hops performed.
+};
+
 #ifdef __CUDACC__
 
 /// Warp-cooperative lookup. Must be called by all 32 threads of a warp together.
@@ -311,20 +325,6 @@ __device__ inline LookupResult warp_lookup_device(
 // =============================================================================
 // Device-Side Insertion
 // =============================================================================
-
-/// Status codes returned by warp_insert_device.
-enum InsertStatus : uint32_t {
-    INSERT_SUCCESS = 0, ///< Inserted directly into a bucket slot.
-    INSERT_STASHED = 1, ///< Inserted into overflow stash after MAX_EVICTION_HOPS.
-    INSERT_FAILED  = 2, ///< Stash also full — data loss (should not happen).
-};
-
-/// Detailed result of a warp-cooperative insertion.
-struct InsertResult {
-    InsertStatus status;   ///< Outcome of the insertion.
-    uint32_t     slot_used; ///< Slot index used (valid only for INSERT_SUCCESS).
-    uint32_t     hops;      ///< Number of cuckoo eviction hops performed.
-};
 
 /// Warp-cooperative insertion with cuckoo eviction chains.
 /// Must be called by all 32 threads of a warp together.
