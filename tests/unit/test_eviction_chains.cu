@@ -2,35 +2,51 @@
 #include "../../src/gpu/cuckoo_insert.h"
 #include "../../src/gpu/warp_lookup.h"
 #include "../../src/gpu/bucket_cuckoo.h"
-
-namespace warpkv {
-    void init_arena();
-    BucketTable* get_table0();
-    StashQueue* get_device_stash();
-}
+#include "../../include/warpkv/warpkv_allocator.h"
 
 using namespace warpkv;
 
 class EvictionChainTest : public ::testing::Test {
 protected:
+    static constexpr uint32_t NUM_BUCKETS = 256;
+    DefaultCudaAllocator allocator_;
+    BucketTable table_storage_;
+    BucketTable* table_ = &table_storage_;
+    StashQueue* stash_ = nullptr;
+    uint32_t* d_needs_rehash_flag_ = nullptr;
+
     void SetUp() override {
-        try {
-            init_arena();
-        } catch (...) {}
-        table_ = get_table0();
-        stash_ = get_device_stash();
-        
+        table_storage_.num_buckets = NUM_BUCKETS;
+        table_storage_.bucket_mask = NUM_BUCKETS - 1;
+        table_storage_.load_factor_limit = NUM_BUCKETS / 2;
+        table_storage_.buckets = static_cast<Bucket*>(
+            allocator_.allocate(NUM_BUCKETS * sizeof(Bucket))
+        );
+        cudaMemset(table_storage_.buckets, 0, NUM_BUCKETS * sizeof(Bucket));
+
+        stash_ = static_cast<StashQueue*>(
+            allocator_.allocate(sizeof(StashQueue))
+        );
+        cudaMemset(stash_, 0, sizeof(StashQueue));
+
         cudaMalloc(&d_needs_rehash_flag_, sizeof(uint32_t));
         cudaMemset(d_needs_rehash_flag_, 0, sizeof(uint32_t));
-        
-        // Clear table and stash
-        cudaMemset(table_->buckets, 0, table_->num_buckets * sizeof(Bucket));
-        cudaMemset(stash_, 0, sizeof(StashQueue));
     }
 
-    BucketTable* table_;
-    StashQueue* stash_;
-    uint32_t* d_needs_rehash_flag_;
+    void TearDown() override {
+        if (table_storage_.buckets) {
+            allocator_.deallocate(table_storage_.buckets);
+            table_storage_.buckets = nullptr;
+        }
+        if (stash_) {
+            allocator_.deallocate(stash_);
+            stash_ = nullptr;
+        }
+        if (d_needs_rehash_flag_) {
+            cudaFree(d_needs_rehash_flag_);
+            d_needs_rehash_flag_ = nullptr;
+        }
+    }
 };
 
 TEST_F(EvictionChainTest, ForceEvictionToStash) {

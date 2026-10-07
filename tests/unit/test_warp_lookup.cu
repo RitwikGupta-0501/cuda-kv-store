@@ -2,27 +2,34 @@
 #include "../../src/gpu/warp_lookup.h"
 #include "../../src/gpu/bucket_cuckoo.h"
 #include "../../src/gpu/cuckoo_insert.h" // For InsertStatus if needed
+#include "../../include/warpkv/warpkv_allocator.h"
 #include <cstring>
-
-namespace warpkv {
-    void init_arena();
-    BucketTable* get_table0();
-}
 
 using namespace warpkv;
 
 class WarpLookupTest : public ::testing::Test {
 protected:
+    static constexpr uint32_t NUM_BUCKETS = 256;
+    DefaultCudaAllocator allocator_;
+    BucketTable table_storage_;
+    BucketTable* table_ = &table_storage_;
+
     void SetUp() override {
-        try {
-            init_arena();
-        } catch (...) {}
-        table_ = get_table0();
-        // Clear table
-        cudaMemset(table_->buckets, 0, table_->num_buckets * sizeof(Bucket));
+        table_storage_.num_buckets = NUM_BUCKETS;
+        table_storage_.bucket_mask = NUM_BUCKETS - 1;
+        table_storage_.load_factor_limit = NUM_BUCKETS / 2;
+        table_storage_.buckets = static_cast<Bucket*>(
+            allocator_.allocate(NUM_BUCKETS * sizeof(Bucket))
+        );
+        cudaMemset(table_storage_.buckets, 0, NUM_BUCKETS * sizeof(Bucket));
     }
 
-    BucketTable* table_;
+    void TearDown() override {
+        if (table_storage_.buckets) {
+            allocator_.deallocate(table_storage_.buckets);
+            table_storage_.buckets = nullptr;
+        }
+    }
 };
 
 TEST_F(WarpLookupTest, SingleKeyB1Hit) {

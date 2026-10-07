@@ -2,38 +2,66 @@
 #include "../../src/gpu/rehash_kernel.h"
 #include "../../src/gpu/cuckoo_insert.h"
 #include "../../src/gpu/warp_lookup.h"
-
-namespace warpkv {
-    void init_arena();
-    BucketTable* get_table0();
-    BucketTable* get_table1();
-    StashQueue* get_device_stash();
-}
+#include "../../include/warpkv/warpkv_allocator.h"
 
 using namespace warpkv;
 
 class RehashKernelTest : public ::testing::Test {
 protected:
+    static constexpr uint32_t OLD_BUCKETS = 2048;
+    static constexpr uint32_t NEW_BUCKETS = 4096;
+    DefaultCudaAllocator allocator_;
+    BucketTable old_table_storage_;
+    BucketTable new_table_storage_;
+    BucketTable* old_table_ = &old_table_storage_;
+    BucketTable* new_table_ = &new_table_storage_;
+    StashQueue* stash_ = nullptr;
+    uint32_t* d_needs_rehash_flag_ = nullptr;
+
     void SetUp() override {
-        try {
-            init_arena();
-        } catch (...) {}
-        old_table_ = get_table0();
-        new_table_ = get_table1();
-        stash_ = get_device_stash();
-        
+        old_table_storage_.num_buckets = OLD_BUCKETS;
+        old_table_storage_.bucket_mask = OLD_BUCKETS - 1;
+        old_table_storage_.load_factor_limit = OLD_BUCKETS / 2;
+        old_table_storage_.buckets = static_cast<Bucket*>(
+            allocator_.allocate(OLD_BUCKETS * sizeof(Bucket))
+        );
+        cudaMemset(old_table_storage_.buckets, 0, OLD_BUCKETS * sizeof(Bucket));
+
+        new_table_storage_.num_buckets = NEW_BUCKETS;
+        new_table_storage_.bucket_mask = NEW_BUCKETS - 1;
+        new_table_storage_.load_factor_limit = NEW_BUCKETS / 2;
+        new_table_storage_.buckets = static_cast<Bucket*>(
+            allocator_.allocate(NEW_BUCKETS * sizeof(Bucket))
+        );
+        cudaMemset(new_table_storage_.buckets, 0, NEW_BUCKETS * sizeof(Bucket));
+
+        stash_ = static_cast<StashQueue*>(
+            allocator_.allocate(sizeof(StashQueue))
+        );
+        cudaMemset(stash_, 0, sizeof(StashQueue));
+
         cudaMalloc(&d_needs_rehash_flag_, sizeof(uint32_t));
         cudaMemset(d_needs_rehash_flag_, 0, sizeof(uint32_t));
-        
-        cudaMemset(old_table_->buckets, 0, old_table_->num_buckets * sizeof(Bucket));
-        cudaMemset(new_table_->buckets, 0, new_table_->num_buckets * sizeof(Bucket));
-        cudaMemset(stash_, 0, sizeof(StashQueue));
     }
 
-    BucketTable* old_table_;
-    BucketTable* new_table_;
-    StashQueue* stash_;
-    uint32_t* d_needs_rehash_flag_;
+    void TearDown() override {
+        if (old_table_storage_.buckets) {
+            allocator_.deallocate(old_table_storage_.buckets);
+            old_table_storage_.buckets = nullptr;
+        }
+        if (new_table_storage_.buckets) {
+            allocator_.deallocate(new_table_storage_.buckets);
+            new_table_storage_.buckets = nullptr;
+        }
+        if (stash_) {
+            allocator_.deallocate(stash_);
+            stash_ = nullptr;
+        }
+        if (d_needs_rehash_flag_) {
+            cudaFree(d_needs_rehash_flag_);
+            d_needs_rehash_flag_ = nullptr;
+        }
+    }
 };
 
 TEST_F(RehashKernelTest, RealRehashExecution) {
