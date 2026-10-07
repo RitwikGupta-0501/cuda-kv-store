@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# run_phase1_tests.sh — Build & Test Runner for WarpKV Phase 1
+# run_cpp_tests.sh — Build & Test Runner for WarpKV C++ Engine
 # ==============================================================================
 #
-# Tests Phase 1 Deliverables:
+# Tests C++ Engine Deliverables:
 #   1. Step 1.1: Standalone warpkv_device.cuh (test_warpkv_device_header)
 #   2. Step 1.2: PTX device module generation (warpkv_device_ptx)
 #   3. Step 1.3: Asynchronous non-blocking pipeline (test_async_pipeline)
@@ -12,13 +12,13 @@
 #                  test_engine_concurrent)
 #
 # Usage:
-#   bash scripts/run_phase1_tests.sh [options]
+#   bash scripts/run_cpp_tests.sh [options]
 #
 # Options:
 #   --build-dir <dir>   Path to build directory (default: ./build)
 #   --arch <sm_arch>    CUDA compute architecture number, e.g. 75, 80, 89 (default: auto/50)
 #   --clean             Perform a clean build
-#   --phase1-only       Run only the new Phase 1 test targets
+#   --phase1-only       Run only the new C++ Engine test targets
 #   --help              Show this message
 # ==============================================================================
 
@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "=============================================================================="
-echo " WarpKV Phase 1 Verification Suite"
+echo " WarpKV C++ Engine Verification Suite"
 echo "=============================================================================="
 echo " Repository root: $REPO_ROOT"
 echo " Build directory: $BUILD_DIR"
@@ -203,6 +203,6 @@ if [ $FAILED -gt 0 ]; then
     done
     exit 1
 else
-    echo " All Phase 1 deliverables and regression checks verified! ✓"
+    echo " All C++ Engine deliverables and regression checks verified! ✓"
     exit 0
 fi
