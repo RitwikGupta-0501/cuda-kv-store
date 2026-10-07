@@ -31,8 +31,8 @@
 __global__ void custom_kernel_with_device_lookup(
     warpkv::BucketTable  table,
     warpkv::StashQueue*  stash,
-    const uint32_t*      d_query_keys,
-    uint32_t*            d_results,
+    const warpkv::KeyT*  d_query_keys,
+    warpkv::ValueT*      d_results,
     uint32_t             num_keys)
 {
     using namespace warpkv;
@@ -53,8 +53,8 @@ __global__ void custom_kernel_with_device_insert(
     warpkv::BucketTable  table,
     warpkv::StashQueue*  stash,
     uint32_t*            d_needs_rehash,
-    const uint32_t*      d_keys,
-    const uint32_t*      d_values,
+    const warpkv::KeyT*  d_keys,
+    const warpkv::ValueT* d_values,
     uint32_t*            d_statuses,
     uint32_t             num_keys)
 {
@@ -98,16 +98,16 @@ int main() {
     // ---- Static structure checks -------------------------------------------
     printf("[1] Checking static assertions...\n");
     static_assert(sizeof(warpkv::Bucket)     == 128,    "Bucket must be 128 bytes");
-    static_assert(sizeof(warpkv::StashQueue) < 300000,  "StashQueue must be < 300 KB");
-    static_assert(warpkv::EMPTY_KEY    == 0x00000000u,  "EMPTY_KEY check");
-    static_assert(warpkv::LOCK_SENTINEL == 0xFFFFFFFFu, "LOCK_SENTINEL check");
-    static_assert(warpkv::NOT_FOUND    == 0xFFFFFFFFu,  "NOT_FOUND check");
+    static_assert(sizeof(warpkv::StashQueue) < 600000,  "StashQueue must be < 600 KB");
+    static_assert(warpkv::EMPTY_KEY    == 0x0000000000000000ULL,  "EMPTY_KEY check");
+    static_assert(warpkv::LOCK_SENTINEL == 0xFFFFFFFFFFFFFFFFULL, "LOCK_SENTINEL check");
+    static_assert(warpkv::NOT_FOUND    == 0xFFFFFFFFFFFFFFFFULL,  "NOT_FOUND check");
     printf("    OK: struct sizes and constants correct\n");
 
     // ---- Host-side hash function check -------------------------------------
     printf("[2] Checking host-side hash function...\n");
     {
-        warpkv::HashPair p = warpkv::compute_hash_pair(42u, NUM_BUCKETS - 1);
+        warpkv::HashPair p = warpkv::compute_hash_pair(42ULL, NUM_BUCKETS - 1);
         assert(p.b1 < NUM_BUCKETS && "b1 must be within table");
         assert(p.b2 < NUM_BUCKETS && "b2 must be within table");
         assert(p.b1 != p.b2      && "b1 and b2 must differ");
@@ -137,18 +137,21 @@ int main() {
 
     // ---- GPU: insert keys via custom kernel ---------------------------------
     printf("[4] Inserting %u keys via custom_kernel_with_device_insert...\n", NUM_KEYS);
-    uint32_t h_keys[NUM_KEYS], h_values[NUM_KEYS];
+    warpkv::KeyT h_keys[NUM_KEYS];
+    warpkv::ValueT h_values[NUM_KEYS];
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
         h_keys[i]   = i + 1; // keys 1..16 (avoid EMPTY_KEY = 0)
         h_values[i] = (i + 1) * 100;
     }
 
-    uint32_t *d_keys = nullptr, *d_values = nullptr, *d_statuses = nullptr;
-    CUDA_ASSERT(cudaMalloc(&d_keys,     NUM_KEYS * sizeof(uint32_t)));
-    CUDA_ASSERT(cudaMalloc(&d_values,   NUM_KEYS * sizeof(uint32_t)));
+    warpkv::KeyT *d_keys = nullptr;
+    warpkv::ValueT *d_values = nullptr;
+    uint32_t *d_statuses = nullptr;
+    CUDA_ASSERT(cudaMalloc(&d_keys,     NUM_KEYS * sizeof(warpkv::KeyT)));
+    CUDA_ASSERT(cudaMalloc(&d_values,   NUM_KEYS * sizeof(warpkv::ValueT)));
     CUDA_ASSERT(cudaMalloc(&d_statuses, NUM_KEYS * sizeof(uint32_t)));
-    CUDA_ASSERT(cudaMemcpy(d_keys,   h_keys,   NUM_KEYS * sizeof(uint32_t), cudaMemcpyHostToDevice));
-    CUDA_ASSERT(cudaMemcpy(d_values, h_values, NUM_KEYS * sizeof(uint32_t), cudaMemcpyHostToDevice));
+    CUDA_ASSERT(cudaMemcpy(d_keys,   h_keys,   NUM_KEYS * sizeof(warpkv::KeyT), cudaMemcpyHostToDevice));
+    CUDA_ASSERT(cudaMemcpy(d_values, h_values, NUM_KEYS * sizeof(warpkv::ValueT), cudaMemcpyHostToDevice));
 
     // Launch: 256 threads/block = 8 warps = 8 keys/block
     const uint32_t threads = 256;
@@ -162,8 +165,8 @@ int main() {
     CUDA_ASSERT(cudaMemcpy(h_statuses, d_statuses, NUM_KEYS * sizeof(uint32_t), cudaMemcpyDeviceToHost));
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
         if (h_statuses[i] != warpkv::INSERT_SUCCESS) {
-            fprintf(stderr, "    FAIL: key %u got status %u (expected INSERT_SUCCESS=0)\n",
-                    h_keys[i], h_statuses[i]);
+            fprintf(stderr, "    FAIL: key %llu got status %u (expected INSERT_SUCCESS=0)\n",
+                    (unsigned long long)h_keys[i], h_statuses[i]);
             exit(1);
         }
     }
@@ -171,20 +174,20 @@ int main() {
 
     // ---- GPU: lookup via custom kernel -------------------------------------
     printf("[5] Looking up %u keys via custom_kernel_with_device_lookup...\n", NUM_KEYS);
-    uint32_t* d_results = nullptr;
-    CUDA_ASSERT(cudaMalloc(&d_results, NUM_KEYS * sizeof(uint32_t)));
+    warpkv::ValueT* d_results = nullptr;
+    CUDA_ASSERT(cudaMalloc(&d_results, NUM_KEYS * sizeof(warpkv::ValueT)));
 
     custom_kernel_with_device_lookup<<<blocks, threads>>>(
         table, d_stash, d_keys, d_results, NUM_KEYS);
     CUDA_ASSERT(cudaGetLastError());
     CUDA_ASSERT(cudaDeviceSynchronize());
 
-    uint32_t h_results[NUM_KEYS];
-    CUDA_ASSERT(cudaMemcpy(h_results, d_results, NUM_KEYS * sizeof(uint32_t), cudaMemcpyDeviceToHost));
+    warpkv::ValueT h_results[NUM_KEYS];
+    CUDA_ASSERT(cudaMemcpy(h_results, d_results, NUM_KEYS * sizeof(warpkv::ValueT), cudaMemcpyDeviceToHost));
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
         if (h_results[i] != h_values[i]) {
-            fprintf(stderr, "    FAIL: key %u -> got %u, expected %u\n",
-                    h_keys[i], h_results[i], h_values[i]);
+            fprintf(stderr, "    FAIL: key %llu -> got %llu, expected %llu\n",
+                    (unsigned long long)h_keys[i], (unsigned long long)h_results[i], (unsigned long long)h_values[i]);
             exit(1);
         }
     }
@@ -192,16 +195,16 @@ int main() {
 
     // ---- GPU: lookup missing key -------------------------------------------
     printf("[6] Checking NOT_FOUND for missing key...\n");
-    uint32_t missing_key = 9999u;
-    CUDA_ASSERT(cudaMemcpy(d_keys, &missing_key, sizeof(uint32_t), cudaMemcpyHostToDevice));
+    warpkv::KeyT missing_key = 9999ULL;
+    CUDA_ASSERT(cudaMemcpy(d_keys, &missing_key, sizeof(warpkv::KeyT), cudaMemcpyHostToDevice));
     custom_kernel_with_device_lookup<<<1, 32>>>(table, d_stash, d_keys, d_results, 1);
     CUDA_ASSERT(cudaGetLastError());
     CUDA_ASSERT(cudaDeviceSynchronize());
-    uint32_t miss_result;
-    CUDA_ASSERT(cudaMemcpy(&miss_result, d_results, sizeof(uint32_t), cudaMemcpyDeviceToHost));
+    warpkv::ValueT miss_result;
+    CUDA_ASSERT(cudaMemcpy(&miss_result, d_results, sizeof(warpkv::ValueT), cudaMemcpyDeviceToHost));
     if (miss_result != warpkv::NOT_FOUND) {
-        fprintf(stderr, "    FAIL: missing key returned %u, expected NOT_FOUND=%u\n",
-                miss_result, warpkv::NOT_FOUND);
+        fprintf(stderr, "    FAIL: missing key returned %llu, expected NOT_FOUND=%llu\n",
+                (unsigned long long)miss_result, (unsigned long long)warpkv::NOT_FOUND);
         exit(1);
     }
     printf("    OK: missing key correctly returns NOT_FOUND\n");
