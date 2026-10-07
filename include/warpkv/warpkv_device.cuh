@@ -35,8 +35,8 @@ namespace warpkv {
 // Type Aliases
 // =============================================================================
 // Abstracted types to support smooth migration to 64-bit keys/values.
-using KeyT   = uint64_t;
-using ValueT = uint64_t;
+using KeyT   = unsigned long long;
+using ValueT = unsigned long long;
 
 // =============================================================================
 // Constants

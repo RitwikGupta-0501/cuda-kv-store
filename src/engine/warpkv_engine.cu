@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include "../gpu/rehash_kernel.h"
+#include "../gpu/cuckoo_delete.h"
 
 namespace warpkv {
 
@@ -456,7 +457,7 @@ static std::future<void> make_completion_future(cudaEvent_t ev_done) {
 // Helper: similar to above but for lookup — also copies output values.
 static std::future<LookupFutureResult> make_lookup_future(
     cudaEvent_t     ev_done,
-    uint32_t*       h_values_out_slot,
+    ValueT*         h_values_out_slot,
     uint32_t        count)
 {
     return std::async(std::launch::async,
@@ -640,7 +641,7 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
     release_table(epoch);
 
     cudaEvent_t ev_done = ev_d2h[slot];
-    uint32_t* h_out = h_values_out[slot];
+    ValueT* h_out = h_values_out[slot];
     return std::async(std::launch::async, [ev_done, h_out, values_out, count]() {
         cudaError_t status;
         do {

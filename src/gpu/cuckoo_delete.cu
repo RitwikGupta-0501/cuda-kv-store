@@ -10,10 +10,10 @@ void warp_delete_batch_sync(
 
     if (batch.num_keys == 0) return;
 
-    uint32_t* d_keys = nullptr;
+    KeyT* d_keys = nullptr;
     uint32_t* d_deleted = nullptr;
 
-    size_t keys_size = batch.num_keys * sizeof(uint32_t);
+    size_t keys_size = batch.num_keys * sizeof(KeyT);
     size_t deleted_size = batch.num_keys * sizeof(uint32_t);
 
     cudaMalloc(&d_keys, keys_size);

@@ -15,12 +15,12 @@ void warp_lookup_batch_sync(
     }
 
     // Allocate device-side buffers for this batch
-    uint32_t* d_keys = nullptr;
-    uint32_t* d_values = nullptr;
+    KeyT* d_keys = nullptr;
+    ValueT* d_values = nullptr;
     uint32_t* d_found = nullptr;
 
-    size_t keys_size = batch.num_keys * sizeof(uint32_t);
-    size_t values_size = batch.num_keys * sizeof(uint32_t);
+    size_t keys_size = batch.num_keys * sizeof(KeyT);
+    size_t values_size = batch.num_keys * sizeof(ValueT);
     size_t found_size = batch.num_keys * sizeof(uint32_t);
 
     cudaError_t err = cudaMalloc(&d_keys, keys_size);

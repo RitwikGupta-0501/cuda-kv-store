@@ -13,22 +13,23 @@ void warp_insert_batch_sync(
 
     if (batch.num_keys == 0) return;
 
-    uint32_t* d_keys = nullptr;
-    uint32_t* d_values = nullptr;
+    KeyT* d_keys = nullptr;
+    ValueT* d_values = nullptr;
     InsertStatus* d_statuses = nullptr;
     uint32_t* d_hops = nullptr;
 
-    size_t keys_size = batch.num_keys * sizeof(uint32_t);
+    size_t keys_size = batch.num_keys * sizeof(KeyT);
+    size_t values_size = batch.num_keys * sizeof(ValueT);
     size_t statuses_size = batch.num_keys * sizeof(InsertStatus);
     size_t hops_size = batch.num_keys * sizeof(uint32_t);
 
     cudaMalloc(&d_keys, keys_size);
-    cudaMalloc(&d_values, keys_size);
+    cudaMalloc(&d_values, values_size);
     cudaMalloc(&d_statuses, statuses_size);
     if (batch.h_hops) cudaMalloc(&d_hops, hops_size);
 
     cudaMemcpyAsync(d_keys, batch.h_keys, keys_size, cudaMemcpyHostToDevice, stream);
-    cudaMemcpyAsync(d_values, batch.h_values, keys_size, cudaMemcpyHostToDevice, stream);
+    cudaMemcpyAsync(d_values, batch.h_values, values_size, cudaMemcpyHostToDevice, stream);
 
     uint32_t threads_per_block = 256;
     uint32_t keys_per_block = threads_per_block / 32;
