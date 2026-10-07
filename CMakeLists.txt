@@ -327,12 +327,24 @@ if(Torch_FOUND)
     message(STATUS "Found PyTorch: ${TORCH_VERSION}, building warpkv_torch")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
     
+    # Locate libtorch_python.so from the PyTorch installation
+    find_library(TORCH_PYTHON_LIBRARY torch_python PATHS "${TORCH_INSTALL_PREFIX}/lib")
+    if(NOT TORCH_PYTHON_LIBRARY)
+        set(TORCH_PYTHON_LIBRARY torch_python)
+    endif()
+
     add_library(warpkv_torch MODULE src/python/warpkv_torch.cpp)
-    target_link_libraries(warpkv_torch PRIVATE warpkv_engine ${TORCH_LIBRARIES} pybind11::module)
+    target_link_directories(warpkv_torch PRIVATE "${TORCH_INSTALL_PREFIX}/lib")
+    target_link_libraries(warpkv_torch PRIVATE warpkv_engine ${TORCH_LIBRARIES} ${TORCH_PYTHON_LIBRARY} pybind11::module)
     
     # Configure extension name macro for Pybind11
     target_compile_definitions(warpkv_torch PRIVATE TORCH_EXTENSION_NAME=warpkv_torch)
-    set_target_properties(warpkv_torch PROPERTIES PREFIX "" SUFFIX ".so")
+    set_target_properties(warpkv_torch PROPERTIES 
+        PREFIX "" 
+        SUFFIX ".so"
+        INSTALL_RPATH "${TORCH_INSTALL_PREFIX}/lib"
+        BUILD_WITH_INSTALL_RPATH TRUE
+    )
 else()
     message(WARNING "PyTorch not found, skipping warpkv_torch build.")
 endif()
