@@ -39,8 +39,8 @@ protected:
 TEST_F(RehashKernelTest, RealRehashExecution) {
     // 1. Insert 1024 unique keys into old_table
     const uint32_t num_keys = 1024;
-    std::vector<uint32_t> keys(num_keys);
-    std::vector<uint32_t> values(num_keys);
+    std::vector<KeyT> keys(num_keys);
+    std::vector<ValueT> values(num_keys);
     std::vector<InsertStatus> statuses(num_keys);
     
     for (uint32_t i = 0; i < num_keys; ++i) {
@@ -61,8 +61,8 @@ TEST_F(RehashKernelTest, RealRehashExecution) {
     StashQueue h_stash;
     cudaMemcpy(&h_stash, stash_, sizeof(StashQueue), cudaMemcpyDeviceToHost);
     
-    uint32_t stash_key1 = 999991;
-    uint32_t stash_key2 = 999992;
+    KeyT stash_key1 = 999991;
+    KeyT stash_key2 = 999992;
     h_stash.entries[0].key = stash_key1;
     h_stash.entries[0].value = 111111;
     h_stash.entries[1].key = stash_key2;
@@ -87,12 +87,12 @@ TEST_F(RehashKernelTest, RealRehashExecution) {
     EXPECT_EQ(stats.entries_copied + stats.entries_stashed, num_keys + 2) << "All valid entries should move to new table";
 
     // 4. Verify data in new_table_
-    std::vector<uint32_t> verify_keys = keys;
+    std::vector<KeyT> verify_keys = keys;
     verify_keys.push_back(stash_key1);
     verify_keys.push_back(stash_key2);
     
     std::vector<uint32_t> found_flags(verify_keys.size());
-    std::vector<uint32_t> found_values(verify_keys.size());
+    std::vector<ValueT> found_values(verify_keys.size());
     
     LookupBatch l_batch;
     l_batch.h_keys = verify_keys.data();

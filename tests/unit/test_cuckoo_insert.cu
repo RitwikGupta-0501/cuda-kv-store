@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include "../../src/gpu/cuckoo_insert.h"
-#include "../../src/gpu/xxhash3.h"
 #include "../../src/gpu/bucket_cuckoo.h"
 
 namespace warpkv {
@@ -34,8 +33,8 @@ protected:
 };
 
 TEST_F(CuckooInsertTest, InsertIntoEmptyB1) {
-    uint32_t keys[1] = {12345};
-    uint32_t values[1] = {67890};
+    KeyT keys[1] = {12345};
+    ValueT values[1] = {67890};
     InsertStatus statuses[1];
     uint32_t hops[1];
 
@@ -67,8 +66,8 @@ TEST_F(CuckooInsertTest, MultipleInsertsSameBucket) {
     // Instead of finding 8 real collisions, we'll insert 8 unique keys (they won't all collide), 
     // but we can just test bulk insert success.
     const uint32_t num = 8;
-    uint32_t keys[num];
-    uint32_t values[num];
+    KeyT keys[num];
+    ValueT values[num];
     InsertStatus statuses[num];
     
     for (int i = 0; i < num; ++i) {
@@ -97,7 +96,7 @@ TEST_F(CuckooInsertTest, StashOverflowLogic) {
     cudaMemcpy(&h_stash, stash_, sizeof(StashQueue), cudaMemcpyDeviceToHost);
     
     // Set stash to almost full (5118 out of 5120)
-    h_stash.tail = STASH_CAPACITY - 2; 
+    h_stash.head = STASH_CAPACITY - 2; 
     cudaMemcpy(stash_, &h_stash, sizeof(StashQueue), cudaMemcpyHostToDevice);
 
     // To guarantee they go to stash, we need to fill the buckets. 

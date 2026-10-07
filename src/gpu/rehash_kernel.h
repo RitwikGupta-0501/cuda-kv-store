@@ -195,7 +195,6 @@ static __global__ void rehash_table_kernel(
     Bucket* old_bucket = &old_table.buckets[bucket_idx];
     const uint32_t active_mask = (threadIdx.x % 32 < 16) ? 0x0000FFFFu : 0xFFFF0000u;
     uint32_t lane_id = threadIdx.x % 16;
-    const uint32_t warp_lane = threadIdx.x % 32;
 
     // All lanes cooperatively scan this bucket's slots
     for (int slot = 0; slot < BUCKET_SLOTS; ++slot) {
@@ -216,8 +215,8 @@ static __global__ void rehash_table_kernel(
 
         // Broadcast to all lanes
         occupied = __shfl_sync(active_mask, occupied, (threadIdx.x & ~15));
-        key = __shfl_sync(active_mask, (uint32_t)key, (threadIdx.x & ~15));
-        value = __shfl_sync(active_mask, (uint32_t)value, (threadIdx.x & ~15));
+        key = __shfl_sync(active_mask, key, (threadIdx.x & ~15));
+        value = __shfl_sync(active_mask, value, (threadIdx.x & ~15));
         fingerprint = __shfl_sync(active_mask, (uint32_t)fingerprint, (threadIdx.x & ~15));
 
         if (occupied) {
@@ -240,9 +239,7 @@ static __global__ void drain_stash_kernel(
 
     // Each warp processes one stash entry
     uint32_t entry_idx = blockIdx.x * (blockDim.x / 16) + (threadIdx.x / 16);
-    const uint32_t active_mask = (threadIdx.x % 32 < 16) ? 0x0000FFFFu : 0xFFFF0000u;
     uint32_t lane_id = threadIdx.x % 16;
-    const uint32_t warp_lane = threadIdx.x % 32;
 
     // Read stash size (from old head before it was reset)
     uint32_t stash_size = atomicAdd((uint32_t*)&stash->head, 0);

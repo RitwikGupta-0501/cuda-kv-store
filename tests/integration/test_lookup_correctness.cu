@@ -21,11 +21,11 @@ protected:
 
 TEST_F(LookupCorrectnessTest, InsertLookupDeleteFullCycle) {
     const uint32_t NUM_KEYS = 10000;
-    std::vector<uint32_t> keys(NUM_KEYS);
-    std::vector<uint32_t> values(NUM_KEYS);
+    std::vector<KeyT> keys(NUM_KEYS);
+    std::vector<ValueT> values(NUM_KEYS);
     
-    std::mt19937 rng(42);
-    std::uniform_int_distribution<uint32_t> dist(1, 0xFFFFFFFE); // Avoid 0
+    std::mt19937_64 rng(42);
+    std::uniform_int_distribution<uint64_t> dist(1, 0xFFFFFFFFFFFFFFFEULL); // Avoid 0
 
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
         keys[i] = dist(rng);
@@ -45,7 +45,7 @@ TEST_F(LookupCorrectnessTest, InsertLookupDeleteFullCycle) {
     
     for (uint32_t offset = 0; offset < NUM_KEYS; offset += BATCH_SIZE) {
         uint32_t current_batch = std::min((uint32_t)BATCH_SIZE, NUM_KEYS - offset);
-        std::vector<uint32_t> out_values(current_batch);
+        std::vector<ValueT> out_values(current_batch);
         
         engine.submit_lookup_batch(&keys[offset], out_values.data(), current_batch);
         engine.sync_all();
@@ -73,7 +73,7 @@ TEST_F(LookupCorrectnessTest, InsertLookupDeleteFullCycle) {
     found_count = 0;
     for (uint32_t offset = 0; offset < delete_count; offset += BATCH_SIZE) {
         uint32_t current_batch = std::min((uint32_t)BATCH_SIZE, delete_count - offset);
-        std::vector<uint32_t> out_values(current_batch);
+        std::vector<ValueT> out_values(current_batch);
         engine.submit_lookup_batch(&keys[offset], out_values.data(), current_batch);
         engine.sync_all();
         for (uint32_t i = 0; i < current_batch; ++i) {
@@ -86,7 +86,7 @@ TEST_F(LookupCorrectnessTest, InsertLookupDeleteFullCycle) {
     found_count = 0;
     for (uint32_t offset = delete_count; offset < NUM_KEYS; offset += BATCH_SIZE) {
         uint32_t current_batch = std::min((uint32_t)BATCH_SIZE, NUM_KEYS - offset);
-        std::vector<uint32_t> out_values(current_batch);
+        std::vector<ValueT> out_values(current_batch);
         engine.submit_lookup_batch(&keys[offset], out_values.data(), current_batch);
         engine.sync_all();
         for (uint32_t i = 0; i < current_batch; ++i) {
@@ -98,10 +98,10 @@ TEST_F(LookupCorrectnessTest, InsertLookupDeleteFullCycle) {
 
 TEST_F(LookupCorrectnessTest, LookupNonExistentKeys) {
     const uint32_t NUM_KEYS = 5000;
-    std::vector<uint32_t> missing_keys(NUM_KEYS);
+    std::vector<KeyT> missing_keys(NUM_KEYS);
     
-    std::mt19937 rng(1337);
-    std::uniform_int_distribution<uint32_t> dist(1, 0xFFFFFFFE);
+    std::mt19937_64 rng(1337);
+    std::uniform_int_distribution<uint64_t> dist(1, 0xFFFFFFFFFFFFFFFEULL);
     
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
         missing_keys[i] = dist(rng);
@@ -110,7 +110,7 @@ TEST_F(LookupCorrectnessTest, LookupNonExistentKeys) {
     uint32_t false_positives = 0;
     for (uint32_t offset = 0; offset < NUM_KEYS; offset += BATCH_SIZE) {
         uint32_t current_batch = std::min((uint32_t)BATCH_SIZE, NUM_KEYS - offset);
-        std::vector<uint32_t> out_values(current_batch);
+        std::vector<ValueT> out_values(current_batch);
         
         engine.submit_lookup_batch(&missing_keys[offset], out_values.data(), current_batch);
         engine.sync_all();

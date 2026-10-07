@@ -18,21 +18,21 @@ TEST(EnginePipeline, ConcurrentSubmissions_10Threads_100kBatches) {
     std::vector<std::thread> threads;
     std::atomic<uint64_t> total_inserts{0};
     std::atomic<uint64_t> total_lookups{0};
-    std::vector<uint32_t> mismatches;
+    std::vector<KeyT> mismatches;
     std::mutex mismatch_lock;
     
     for (int t = 0; t < 10; ++t) {
         threads.emplace_back([&engine, &total_inserts, &total_lookups, &mismatches, &mismatch_lock, t]() {
-            std::vector<uint32_t> keys(BATCH_SIZE);
-            std::vector<uint32_t> values(BATCH_SIZE);
-            std::vector<uint32_t> values_out(BATCH_SIZE);
+            std::vector<KeyT> keys(BATCH_SIZE);
+            std::vector<ValueT> values(BATCH_SIZE);
+            std::vector<ValueT> values_out(BATCH_SIZE);
             
             // 100 batches per thread, 4096 keys each. Total: 10 * 100 * 4096 = 4.09M keys.
             for (int b = 0; b < 100; ++b) {
                 for (uint32_t i = 0; i < BATCH_SIZE; ++i) {
-                    uint32_t key = t * 10000000 + b * BATCH_SIZE + i;
+                    KeyT key = (KeyT)t * 10000000ULL + b * BATCH_SIZE + i;
                     keys[i] = key;
-                    values[i] = key ^ 0xDEADBEEF;
+                    values[i] = key ^ 0xDEADBEEFULL;
                 }
                 
                 // Insert

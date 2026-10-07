@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include "../../src/gpu/warp_lookup.h"
-#include "../../src/gpu/xxhash3.h"
 #include "../../src/gpu/bucket_cuckoo.h"
 #include "../../src/gpu/cuckoo_insert.h" // For InsertStatus if needed
 #include <cstring>
@@ -27,8 +26,8 @@ protected:
 };
 
 TEST_F(WarpLookupTest, SingleKeyB1Hit) {
-    uint32_t key = 12345;
-    uint32_t value = 67890;
+    KeyT key = 12345;
+    ValueT value = 67890;
     
     HashPair hash = compute_hash_pair(key, table_->num_buckets - 1);
     
@@ -44,8 +43,8 @@ TEST_F(WarpLookupTest, SingleKeyB1Hit) {
     cudaMemcpy(&table_->buckets[hash.b1], &h_bucket, sizeof(Bucket), cudaMemcpyHostToDevice);
 
     // Perform real lookup
-    uint32_t keys_in[1] = {key};
-    uint32_t values_out[1] = {0};
+    KeyT keys_in[1] = {key};
+    ValueT values_out[1] = {0};
     uint32_t found_out[1] = {0};
 
     LookupBatch batch;
@@ -61,8 +60,8 @@ TEST_F(WarpLookupTest, SingleKeyB1Hit) {
 }
 
 TEST_F(WarpLookupTest, SingleKeyB2Hit) {
-    uint32_t key = 98765;
-    uint32_t value = 43210;
+    KeyT key = 98765;
+    ValueT value = 43210;
     
     HashPair hash = compute_hash_pair(key, table_->num_buckets - 1);
     
@@ -76,8 +75,8 @@ TEST_F(WarpLookupTest, SingleKeyB2Hit) {
     // Copy to device at b2 (so it misses b1 and hits b2)
     cudaMemcpy(&table_->buckets[hash.b2], &h_bucket, sizeof(Bucket), cudaMemcpyHostToDevice);
 
-    uint32_t keys_in[1] = {key};
-    uint32_t values_out[1] = {0};
+    KeyT keys_in[1] = {key};
+    ValueT values_out[1] = {0};
     uint32_t found_out[1] = {0};
 
     LookupBatch batch;
@@ -93,11 +92,11 @@ TEST_F(WarpLookupTest, SingleKeyB2Hit) {
 }
 
 TEST_F(WarpLookupTest, KeyNotFound) {
-    uint32_t key = 11111;
+    KeyT key = 11111;
     
     // Do not insert anything. Table was cleared in SetUp.
-    uint32_t keys_in[1] = {key};
-    uint32_t values_out[1] = {999};
+    KeyT keys_in[1] = {key};
+    ValueT values_out[1] = {999};
     uint32_t found_out[1] = {1}; // Initialize to 1 to ensure kernel sets it to 0
 
     LookupBatch batch;
@@ -112,8 +111,8 @@ TEST_F(WarpLookupTest, KeyNotFound) {
 }
 
 TEST_F(WarpLookupTest, FingerprintFalsePositive) {
-    uint32_t key = 22222;
-    uint32_t different_key = 33333; // Hashes to same bucket but different key
+    KeyT key = 22222;
+    KeyT different_key = 33333; // Hashes to same bucket but different key
     
     HashPair hash_diff = compute_hash_pair(different_key, table_->num_buckets - 1);
     HashPair hash_target = compute_hash_pair(key, table_->num_buckets - 1);
@@ -127,8 +126,8 @@ TEST_F(WarpLookupTest, FingerprintFalsePositive) {
 
     cudaMemcpy(&table_->buckets[hash_target.b1], &h_bucket, sizeof(Bucket), cudaMemcpyHostToDevice);
 
-    uint32_t keys_in[1] = {key};
-    uint32_t values_out[1] = {0};
+    KeyT keys_in[1] = {key};
+    ValueT values_out[1] = {0};
     uint32_t found_out[1] = {1}; 
 
     LookupBatch batch;

@@ -47,7 +47,8 @@ protected:
 
 TEST_F(AsyncPipelineTest, InsertReturnsNonBlockingFuture) {
     constexpr uint32_t N = 64;
-    uint32_t keys[N], values[N];
+    KeyT keys[N];
+    ValueT values[N];
     for (uint32_t i = 0; i < N; ++i) {
         keys[i]   = i + 1;
         values[i] = (i + 1) * 10;
@@ -76,8 +77,10 @@ TEST_F(AsyncPipelineTest, InsertReturnsNonBlockingFuture) {
 TEST_F(AsyncPipelineTest, TwoSubmitsOverlap) {
     constexpr uint32_t N = 32;
 
-    uint32_t keys1[N], values1[N];
-    uint32_t keys2[N], values2[N];
+    KeyT keys1[N];
+    ValueT values1[N];
+    KeyT keys2[N];
+    ValueT values2[N];
     for (uint32_t i = 0; i < N; ++i) {
         keys1[i]   = i + 1;
         values1[i] = (i + 1) * 10;
@@ -101,7 +104,8 @@ TEST_F(AsyncPipelineTest, TwoSubmitsOverlap) {
 
 TEST_F(AsyncPipelineTest, LookupReturnsCorrectValues) {
     constexpr uint32_t N = 128;
-    uint32_t keys[N], values[N];
+    KeyT keys[N];
+    ValueT values[N];
     for (uint32_t i = 0; i < N; ++i) {
         keys[i]   = i + 1;
         values[i] = (i + 1) * 100;
@@ -130,7 +134,7 @@ TEST_F(AsyncPipelineTest, LookupReturnsCorrectValues) {
 
 TEST_F(AsyncPipelineTest, LookupMissingKeyReturnsNotFound) {
     constexpr uint32_t N = 8;
-    uint32_t keys[N];
+    KeyT keys[N];
     for (uint32_t i = 0; i < N; ++i) keys[i] = i + 50000; // not inserted
 
     auto fut           = engine.submit_lookup_batch(keys, N);
@@ -150,7 +154,8 @@ TEST_F(AsyncPipelineTest, LookupMissingKeyReturnsNotFound) {
 
 TEST_F(AsyncPipelineTest, DeleteRemovesKeys) {
     constexpr uint32_t N = 32;
-    uint32_t keys[N], values[N];
+    KeyT keys[N];
+    ValueT values[N];
     for (uint32_t i = 0; i < N; ++i) {
         keys[i]   = i + 1;
         values[i] = (i + 1) * 7;
@@ -183,7 +188,8 @@ TEST_F(AsyncPipelineTest, DeleteRemovesKeys) {
 
 TEST_F(AsyncPipelineTest, SyncWrappersBackwardCompat) {
     constexpr uint32_t N = 16;
-    uint32_t keys[N], values[N], out[N];
+    KeyT keys[N];
+    ValueT values[N], out[N];
     for (uint32_t i = 0; i < N; ++i) {
         keys[i]   = i + 200;
         values[i] = (i + 200) * 3;

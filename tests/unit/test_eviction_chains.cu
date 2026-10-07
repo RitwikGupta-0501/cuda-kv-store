@@ -1,6 +1,5 @@
 #include <gtest/gtest.h>
 #include "../../src/gpu/cuckoo_insert.h"
-#include "../../src/gpu/xxhash3.h"
 #include "../../src/gpu/warp_lookup.h"
 #include "../../src/gpu/bucket_cuckoo.h"
 
@@ -35,21 +34,17 @@ protected:
 };
 
 TEST_F(EvictionChainTest, ForceEvictionToStash) {
-    uint32_t key_to_insert = 99999;
-    uint32_t value_to_insert = 88888;
+    KeyT key_to_insert = 99999;
+    ValueT value_to_insert = 88888;
     
     HashPair target_hash = compute_hash_pair(key_to_insert, table_->num_buckets - 1);
     
-    // We want to fill both target_hash.b1 and target_hash.b2 completely.
-    // That means any key trying to insert into b1 will evict something to b2, which evicts to b1, 
-    // causing a ping-pong that hits MAX_EVICTION_HOPS (32) and gets stashed.
-
     Bucket h_b1;
     bucket_init(&h_b1);
     Bucket h_b2;
     bucket_init(&h_b2);
 
-    for (int i = 0; i < 8; ++i) {
+    for (uint32_t i = 0; i < BUCKET_SLOTS; ++i) {
         // Create dummy keys that perfectly hash to b1 and b2.
         // For b1, we just set the keys. To make sure their alternate bucket is b2, we would need to reverse-engineer the hash.
         // But the eviction logic in warp_insert_kernel just does `next_bucket = current_bucket ^ murmur3_32(fingerprint) * constant`.
@@ -83,8 +78,8 @@ TEST_F(EvictionChainTest, ForceEvictionToStash) {
     // We don't know if the evicted key will find an empty slot in its alternate bucket or bounce a few times.
     // But we DO know it will take AT LEAST 1 hop.
     
-    uint32_t keys[1] = {key_to_insert};
-    uint32_t values[1] = {value_to_insert};
+    KeyT keys[1] = {key_to_insert};
+    ValueT values[1] = {value_to_insert};
     InsertStatus statuses[1];
     uint32_t hops[1];
 
@@ -105,7 +100,7 @@ TEST_F(EvictionChainTest, ForceEvictionToStash) {
     // Let's verify the original key is actually in the table (it replaced something in b1, or ended up in b2/stash)
     // A full lookup will confirm.
     uint32_t found_out[1] = {0};
-    uint32_t values_out[1] = {0};
+    ValueT values_out[1] = {0};
     
     LookupBatch l_batch;
     l_batch.h_keys = keys;

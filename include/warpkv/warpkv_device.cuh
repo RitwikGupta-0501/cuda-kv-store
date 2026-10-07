@@ -263,7 +263,6 @@ __device__ inline LookupResult warp_lookup_device(
 
     const uint32_t active_mask = (threadIdx.x % 32 < 16) ? 0x0000FFFFu : 0xFFFF0000u;
     const uint32_t lane_id = threadIdx.x % 16;
-    const uint32_t warp_lane = threadIdx.x % 32;
 
     LookupResult result = {NOT_FOUND, false};
 
