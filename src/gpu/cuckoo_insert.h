@@ -51,7 +51,7 @@ static __global__ void warp_insert_kernel(
         warp_insert_device(table, stash, d_needs_rehash_flag, key, value, fp);
 
     if ((threadIdx.x % 16) == 0) {
-        statuses[key_idx] = result.status;
+        if (statuses) statuses[key_idx] = result.status;
         if (hops) hops[key_idx] = result.hops;
     }
 }

@@ -43,7 +43,7 @@ static __global__ void warp_delete_kernel(
 
     const KeyT key = keys[key_idx];
     if (key == EMPTY_KEY) {
-        if ((threadIdx.x % 16) == 0) deleted_flags[key_idx] = 0;
+        if ((threadIdx.x % 16) == 0 && deleted_flags) deleted_flags[key_idx] = 0;
         return;
     }
 
@@ -51,7 +51,7 @@ static __global__ void warp_delete_kernel(
     const bool    success = warp_delete_device(table, stash, key, fp);
 
     if ((threadIdx.x % 16) == 0) {
-        deleted_flags[key_idx] = success ? 1u : 0u;
+        if (deleted_flags) deleted_flags[key_idx] = success ? 1u : 0u;
     }
 }
 

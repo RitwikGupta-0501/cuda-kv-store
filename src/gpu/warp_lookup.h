@@ -39,8 +39,8 @@ static __global__ void warp_lookup_kernel(
     const KeyT key = keys[key_idx];
     if (key == EMPTY_KEY) {
         if ((threadIdx.x % 16) == 0) {
-            values[key_idx]      = NOT_FOUND;
-            found_flags[key_idx] = 0;
+            if (values) values[key_idx] = NOT_FOUND;
+            if (found_flags) found_flags[key_idx] = 0;
         }
         return;
     }
@@ -49,8 +49,8 @@ static __global__ void warp_lookup_kernel(
     const LookupResult result = warp_lookup_device(table, stash, key, fp);
 
     if ((threadIdx.x % 16) == 0) {
-        values[key_idx]      = result.value;
-        found_flags[key_idx] = result.found ? 1u : 0u;
+        if (values) values[key_idx] = result.value;
+        if (found_flags) found_flags[key_idx] = result.found ? 1u : 0u;
     }
 }
 
