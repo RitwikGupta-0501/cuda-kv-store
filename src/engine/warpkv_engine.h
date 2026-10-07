@@ -99,8 +99,6 @@ public:
     WarpKVAllocator* allocator_ = nullptr;
     std::unique_ptr<WarpKVAllocator> default_allocator_;
     WarpKVEngine();
-    WarpKVAllocator* allocator_ = nullptr;
-    std::unique_ptr<WarpKVAllocator> default_allocator_;
     ~WarpKVEngine();
 
     // Non-copyable, non-movable.

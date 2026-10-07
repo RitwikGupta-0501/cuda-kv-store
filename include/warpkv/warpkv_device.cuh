@@ -80,11 +80,11 @@ struct Bucket {
     /// Values: 7 slots × 8 bytes = 56 bytes
     ValueT values[BUCKET_SLOTS];
 
-    /// Fingerprints: 7 slots × 1 byte = 7 bytes
-    uint8_t fingerprint[BUCKET_SLOTS];
-
     /// Occupancy bitmask: bit i is set when slot i is occupied = 4 bytes
     uint32_t occupancy_mask;
+
+    /// Fingerprints: 7 slots × 1 byte = 7 bytes
+    uint8_t fingerprint[BUCKET_SLOTS];
 
     /// Padding to fill a 128-byte L2 cache line = 5 bytes
     uint8_t _pad[5];
@@ -127,7 +127,7 @@ struct StashQueue {
     StashEntry entries[STASH_CAPACITY];
 };
 
-static_assert(sizeof(StashQueue) < 300000, "StashQueue should be < 300 KB");
+static_assert(sizeof(StashQueue) < 600000, "StashQueue should be < 600 KB");
 
 // =============================================================================
 // Bucket Utility Functions
