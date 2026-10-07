@@ -250,7 +250,6 @@ pybind11_add_module(warpkv
     src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
     src/gpu/rehash_kernel.cu
-    src/gpu/hash.cu
 )
 target_link_libraries(warpkv PRIVATE CUDA::cudart)
 
@@ -318,7 +317,6 @@ add_library(warpkv_engine STATIC
     src/gpu/cuckoo_delete.cu
     src/gpu/warp_lookup.cu
     src/gpu/rehash_kernel.cu
-    src/gpu/hash.cu
 )
 set_target_properties(warpkv_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_link_libraries(warpkv_engine PUBLIC CUDA::cudart)

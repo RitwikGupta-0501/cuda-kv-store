@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "../src/gpu/warpkv_hash64.h"
+#include "../../include/warpkv/warpkv_device.cuh"
 #include <vector>
 #include <random>
 #include <unordered_set>
