@@ -81,7 +81,28 @@
 ---
 
 ## Phase 4: PyTorch Integration
-*Status: PENDING (blocked on Phase 2+3)*
+*Status: COMPLETED*
+
+### Step 4.1: Allocator Abstraction
+- [x] Create `WarpKVAllocator` interface for `cudaMalloc`/`cudaFree`.
+- [x] Modify `WarpKVEngine` to accept `WarpKVAllocator*` for internal allocations (buckets, stash, flags).
+
+### Step 4.2: Zero-Copy Device API
+- [x] Implement `submit_insert_batch_device` (skips H2D copy).
+- [x] Implement `submit_lookup_batch_device` (skips H2D and D2H copies).
+- [x] Implement `submit_delete_batch_device` (skips H2D copy).
+- [x] Ensure CUDA graphs are built for the zero-copy paths without memcpy nodes.
+
+### Step 4.3: PyTorch C++ Extension
+- [x] Create `src/python/warpkv_torch.cpp`.
+- [x] Wrap engine logic to accept `torch::Tensor`.
+- [x] Use `torch::Tensor::is_cuda()` to branch to the zero-copy device API.
+- [x] Implement a `c10::cuda::CUDACachingAllocator` wrapper for `WarpKVAllocator`.
+
+### Step 4.4: CMake and Build Integration
+- [x] Update `CMakeLists.txt` to `find_package(Torch)`.
+- [x] Add `warpkv_torch` build target.
+- [x] Write integration test (`test_torch_integration.py`).
 
 ## Phase 5: Async CPU API & Dynamic Batching
-*Status: PENDING (blocked on Phase 2+3)*
+*Status: PENDING (blocked on Phase 4)*

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../gpu/bucket_cuckoo.h"
+#include "../include/warpkv/warpkv_allocator.h"
 #include "../gpu/cuckoo_insert.h"
 #include "../gpu/warp_lookup.h"
 #include <cuda_runtime.h>
@@ -95,14 +96,18 @@ private:
     uint32_t*    d_needs_rehash_flag  = nullptr;
 
 public:
+    WarpKVAllocator* allocator_ = nullptr;
+    std::unique_ptr<WarpKVAllocator> default_allocator_;
     WarpKVEngine();
+    WarpKVAllocator* allocator_ = nullptr;
+    std::unique_ptr<WarpKVAllocator> default_allocator_;
     ~WarpKVEngine();
 
     // Non-copyable, non-movable.
     WarpKVEngine(const WarpKVEngine&)            = delete;
     WarpKVEngine& operator=(const WarpKVEngine&) = delete;
 
-    void init(uint32_t num_buckets);
+    void init(uint32_t num_buckets, WarpKVAllocator* allocator = nullptr);
     void build_graphs();
 
     // =========================================================================
@@ -187,6 +192,27 @@ public:
     void sync_all();
 
     // Config
+
+    // =========================================================================
+    // Zero-Copy Device API (PyTorch Integration)
+    // =========================================================================
+    std::future<void> submit_insert_batch_device(
+        const KeyT* d_keys,
+        const ValueT* d_values,
+        uint32_t count,
+        cudaStream_t stream);
+
+    std::future<void> submit_lookup_batch_device(
+        const KeyT* d_keys,
+        ValueT* d_values_out,
+        uint32_t count,
+        cudaStream_t stream);
+
+    std::future<void> submit_delete_batch_device(
+        const KeyT* d_keys,
+        uint32_t count,
+        cudaStream_t stream);
+
     void disable_automatic_rehash(bool disable) { auto_rehash_disabled = disable; }
 
 private:

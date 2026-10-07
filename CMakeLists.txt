@@ -307,3 +307,20 @@ message(STATUS "  Device header: include/warpkv/warpkv_device.cuh")
 message(STATUS "  PTX entry:     src/gpu/warpkv_entry_kernels.cu")
 message(STATUS "  PTX output:    <build>/warpkv_kernels.ptx")
 message(STATUS "")
+
+
+# PyTorch Extension (Phase 4)
+find_package(Torch QUIET)
+if(Torch_FOUND)
+    message(STATUS "Found PyTorch: ${TORCH_VERSION}, building warpkv_torch")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
+    
+    add_library(warpkv_torch MODULE src/python/warpkv_torch.cpp)
+    target_link_libraries(warpkv_torch PRIVATE warpkv_engine ${TORCH_LIBRARIES})
+    
+    # Configure extension name macro for Pybind11
+    target_compile_definitions(warpkv_torch PRIVATE TORCH_EXTENSION_NAME=warpkv_torch)
+    set_target_properties(warpkv_torch PROPERTIES PREFIX "" SUFFIX ".so")
+else()
+    message(WARNING "PyTorch not found, skipping warpkv_torch build.")
+endif()
