@@ -436,21 +436,19 @@ void WarpKVEngine::rehash_worker() {
 // The future thread owns a captured copy of slot metadata it needs.
 static std::future<void> make_completion_future(cudaEvent_t ev_done) {
     return std::async(std::launch::async, [ev_done]() {
-        // Busy-spin on the event. For production, a callback-based approach
-        // via cudaStreamAddCallback or cudaLaunchHostFunc would be preferable,
-        // but requires careful lifetime management. This approach is simpler
-        // and safe because the event object is owned by the engine (not the future).
         cudaError_t status;
         do {
             status = cudaEventQuery(ev_done);
             if (status == cudaSuccess) break;
             if (status != cudaErrorNotReady) {
+                cudaEventDestroy(ev_done);
                 throw std::runtime_error(
                     std::string("CUDA event error: ") + cudaGetErrorString(status));
             }
             // Yield to avoid burning 100% CPU while waiting.
             std::this_thread::yield();
         } while (true);
+        cudaEventDestroy(ev_done);
     });
 }
 
@@ -468,6 +466,7 @@ static std::future<LookupFutureResult> make_lookup_future(
             status = cudaEventQuery(ev_done);
             if (status == cudaSuccess) break;
             if (status != cudaErrorNotReady) {
+                cudaEventDestroy(ev_done);
                 throw std::runtime_error(
                     std::string("CUDA event error: ") + cudaGetErrorString(status));
             }
@@ -477,6 +476,7 @@ static std::future<LookupFutureResult> make_lookup_future(
         // D→H copy is now complete — safe to read pinned buffer.
         LookupFutureResult result;
         result.values.assign(h_values_out_slot, h_values_out_slot + count);
+        cudaEventDestroy(ev_done);
         return result;
     });
 }
@@ -545,11 +545,15 @@ std::future<void> WarpKVEngine::submit_insert_batch(
     CUDA_CHECK(cudaGraphLaunch(insert_graphs[slot], streams[slot].h2d));
     // NOTE: No cudaStreamSynchronize here. Graph runs asynchronously.
 
+    cudaEvent_t ev_done;
+    CUDA_CHECK(cudaEventCreateWithFlags(&ev_done, cudaEventDisableTiming));
+    CUDA_CHECK(cudaEventRecord(ev_done, streams[slot].h2d));
+
     release_table(epoch);
     active_inserts.fetch_sub(1, std::memory_order_seq_cst);
 
-    // Return a future that completes when ev_d2h fires.
-    return make_completion_future(ev_d2h[slot]);
+    // Return a future that completes when ev_done fires.
+    return make_completion_future(ev_done);
 }
 
 // ============================================================================
@@ -594,10 +598,14 @@ std::future<LookupFutureResult> WarpKVEngine::submit_lookup_batch(
     CUDA_CHECK(cudaGraphLaunch(lookup_graphs[slot], streams[slot].h2d));
     // NOTE: No cudaStreamSynchronize here — the future owns the completion wait.
 
+    cudaEvent_t ev_done;
+    CUDA_CHECK(cudaEventCreateWithFlags(&ev_done, cudaEventDisableTiming));
+    CUDA_CHECK(cudaEventRecord(ev_done, streams[slot].h2d));
+
     release_table(epoch);
 
-    // Future polls ev_d2h then copies results from the pinned output buffer.
-    return make_lookup_future(ev_d2h[slot], h_values_out[slot], count);
+    // Future polls ev_done then copies results from the pinned output buffer.
+    return make_lookup_future(ev_done, h_values_out[slot], count);
 }
 
 std::future<void> WarpKVEngine::submit_lookup_batch(
@@ -638,9 +646,12 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
 
     CUDA_CHECK(cudaGraphLaunch(lookup_graphs[slot], streams[slot].h2d));
 
+    cudaEvent_t ev_done;
+    CUDA_CHECK(cudaEventCreateWithFlags(&ev_done, cudaEventDisableTiming));
+    CUDA_CHECK(cudaEventRecord(ev_done, streams[slot].h2d));
+
     release_table(epoch);
 
-    cudaEvent_t ev_done = ev_d2h[slot];
     ValueT* h_out = h_values_out[slot];
     return std::async(std::launch::async, [ev_done, h_out, values_out, count]() {
         cudaError_t status;
@@ -648,6 +659,7 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
             status = cudaEventQuery(ev_done);
             if (status == cudaSuccess) break;
             if (status != cudaErrorNotReady) {
+                cudaEventDestroy(ev_done);
                 throw std::runtime_error(
                     std::string("CUDA event error: ") + cudaGetErrorString(status));
             }
@@ -657,6 +669,7 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
         if (values_out && count > 0) {
             std::memcpy(values_out, h_out, count * sizeof(ValueT));
         }
+        cudaEventDestroy(ev_done);
     });
 }
 
@@ -702,9 +715,13 @@ std::future<void> WarpKVEngine::submit_delete_batch(
     CUDA_CHECK(cudaGraphLaunch(delete_graphs[slot], streams[slot].h2d));
     // NOTE: No cudaStreamSynchronize here.
 
+    cudaEvent_t ev_done;
+    CUDA_CHECK(cudaEventCreateWithFlags(&ev_done, cudaEventDisableTiming));
+    CUDA_CHECK(cudaEventRecord(ev_done, streams[slot].h2d));
+
     release_table(epoch);
 
-    return make_completion_future(ev_d2h[slot]);
+    return make_completion_future(ev_done);
 }
 
 // ============================================================================

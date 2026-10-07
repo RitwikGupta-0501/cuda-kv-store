@@ -61,7 +61,7 @@ private:
     PipelineStreams streams[NUM_SLOTS]           = {};
     cudaEvent_t    ev_h2d[NUM_SLOTS]            = {nullptr};
     cudaEvent_t    ev_compute[NUM_SLOTS]        = {nullptr};
-    // ev_d2h marks completion of D→H copy — the future polls this.
+    // ev_d2h marks completion of D→H copy within the captured graph.
     cudaEvent_t    ev_d2h[NUM_SLOTS]            = {nullptr};
 
     // CUDA Graphs
