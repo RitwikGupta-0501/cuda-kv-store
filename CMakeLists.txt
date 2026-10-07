@@ -309,6 +309,20 @@ message(STATUS "  PTX output:    <build>/warpkv_kernels.ptx")
 message(STATUS "")
 
 
+# ============================================================================
+# Engine Library
+# ============================================================================
+add_library(warpkv_engine STATIC
+    src/engine/warpkv_engine.cu
+    src/gpu/cuckoo_insert.cu
+    src/gpu/cuckoo_delete.cu
+    src/gpu/warp_lookup.cu
+    src/gpu/rehash_kernel.cu
+    src/gpu/hash.cu
+)
+set_target_properties(warpkv_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_link_libraries(warpkv_engine PUBLIC CUDA::cudart)
+
 # PyTorch Extension (Phase 4)
 find_package(Torch QUIET)
 if(Torch_FOUND)
