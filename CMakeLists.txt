@@ -10,8 +10,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-# CUDA Architecture: CC 5.0 (Maxwell, MX130 target)
-set(CMAKE_CUDA_ARCHITECTURES 50)
+# CUDA Architecture: CC 7.5 (Turing, Tesla T4 target)
+set(CMAKE_CUDA_ARCHITECTURES 75)
 
 # Find CUDA Toolkit
 find_package(CUDAToolkit REQUIRED)
@@ -290,7 +290,7 @@ add_custom_target(warpkv_device_ptx
 # Build Summary
 # ============================================================================
 message(STATUS "WarpKV v2.0.2 Build Configuration")
-message(STATUS "  CUDA Architecture: CC 5.0 (Maxwell)")
+message(STATUS "  CUDA Architecture: CC 7.5 (Turing, Tesla T4)")
 message(STATUS "  C++ Standard: C++17")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  Unit Tests: ENABLED")
