@@ -316,7 +316,7 @@ if(Torch_FOUND)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
     
     add_library(warpkv_torch MODULE src/python/warpkv_torch.cpp)
-    target_link_libraries(warpkv_torch PRIVATE warpkv_engine ${TORCH_LIBRARIES})
+    target_link_libraries(warpkv_torch PRIVATE warpkv_engine ${TORCH_LIBRARIES} pybind11::module)
     
     # Configure extension name macro for Pybind11
     target_compile_definitions(warpkv_torch PRIVATE TORCH_EXTENSION_NAME=warpkv_torch)
