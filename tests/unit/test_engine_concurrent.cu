@@ -30,7 +30,7 @@ TEST(EnginePipeline, ConcurrentSubmissions_10Threads_100kBatches) {
             // 100 batches per thread, 4096 keys each. Total: 10 * 100 * 4096 = 4.09M keys.
             for (int b = 0; b < 100; ++b) {
                 for (uint32_t i = 0; i < BATCH_SIZE; ++i) {
-                    KeyT key = (KeyT)t * 10000000ULL + b * BATCH_SIZE + i;
+                    KeyT key = (KeyT)t * 10000000ULL + b * BATCH_SIZE + i + 1ULL;
                     keys[i] = key;
                     values[i] = key ^ 0xDEADBEEFULL;
                 }
