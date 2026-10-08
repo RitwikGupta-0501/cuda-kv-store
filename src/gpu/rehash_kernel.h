@@ -164,8 +164,8 @@ __device__ inline bool rehash_entry_device(
 
         if (eviction_success) {
             // Broadcast evicted entry
-            current_key = __shfl_sync(active_mask, (uint32_t)evicted_key, (threadIdx.x & ~15));
-            current_value = __shfl_sync(active_mask, (uint32_t)evicted_value, (threadIdx.x & ~15));
+            current_key = warpkv_shfl64(active_mask, evicted_key, (threadIdx.x & ~15));
+            current_value = warpkv_shfl64(active_mask, evicted_value, (threadIdx.x & ~15));
             
             hop_count++;
             contention_count = 0;
@@ -215,8 +215,8 @@ static __global__ void rehash_table_kernel(
 
         // Broadcast to all lanes
         occupied = __shfl_sync(active_mask, occupied, (threadIdx.x & ~15));
-        key = __shfl_sync(active_mask, key, (threadIdx.x & ~15));
-        value = __shfl_sync(active_mask, value, (threadIdx.x & ~15));
+        key = warpkv_shfl64(active_mask, key, (threadIdx.x & ~15));
+        value = warpkv_shfl64(active_mask, value, (threadIdx.x & ~15));
         fingerprint = __shfl_sync(active_mask, (uint32_t)fingerprint, (threadIdx.x & ~15));
 
         if (occupied) {

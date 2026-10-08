@@ -242,6 +242,12 @@ struct InsertResult {
 
 #ifdef __CUDACC__
 
+__device__ __forceinline__ uint64_t warpkv_shfl64(uint32_t mask, uint64_t val, int src_lane) {
+    uint32_t lo = __shfl_sync(mask, static_cast<uint32_t>(val), src_lane);
+    uint32_t hi = __shfl_sync(mask, static_cast<uint32_t>(val >> 32), src_lane);
+    return (static_cast<uint64_t>(hi) << 32) | lo;
+}
+
 /// Warp-cooperative lookup. Must be called by all 32 threads of a warp together.
 ///
 /// Thread assignment:
@@ -293,7 +299,7 @@ __device__ inline LookupResult warp_lookup_device(
     // ---- Broadcast from whichever lane found the key -----------------------
     int found_lane = __ffs(__ballot_sync(active_mask, result.found)) - 1;
     if (found_lane >= 0) {
-        result.value = __shfl_sync(active_mask, result.value, found_lane);
+        result.value = warpkv_shfl64(active_mask, result.value, found_lane);
         result.found = true;
         return result;
     }
@@ -313,7 +319,7 @@ __device__ inline LookupResult warp_lookup_device(
 
         found_lane = __ffs(__ballot_sync(active_mask, result.found)) - 1;
         if (found_lane >= 0) {
-            result.value = __shfl_sync(active_mask, result.value, found_lane);
+            result.value = warpkv_shfl64(active_mask, result.value, found_lane);
             result.found = true;
         }
     }
@@ -470,10 +476,8 @@ __device__ inline InsertResult warp_insert_device(
 
         eviction_success = __shfl_sync(active_mask, eviction_success, (threadIdx.x & ~15));
         if (eviction_success) {
-            // Note: If KeyT/ValueT are 64-bit, we need __shfl_sync to handle 64-bit later.
-            // But since KeyT/ValueT are uint32_t right now, __shfl_sync is fine.
-            current_key   = __shfl_sync(active_mask, (uint32_t)evicted_key,   0);
-            current_value = __shfl_sync(active_mask, (uint32_t)evicted_value, (threadIdx.x & ~15));
+            current_key   = warpkv_shfl64(active_mask, evicted_key,   (threadIdx.x & ~15));
+            current_value = warpkv_shfl64(active_mask, evicted_value, (threadIdx.x & ~15));
             hop_count++;
             contention_count = 0;
         } else {
