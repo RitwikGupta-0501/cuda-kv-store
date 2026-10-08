@@ -1,7 +1,6 @@
 #include <gtest/gtest.h>
 #include <cstdio>
 #include "../../src/gpu/bucket_cuckoo.h"
-#include "../../src/gpu/xxhash3.h"
 #include "../../include/warpkv/warpkv_allocator.h"
 
 using namespace warpkv;
