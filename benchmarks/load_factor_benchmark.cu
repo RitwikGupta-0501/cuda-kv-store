@@ -34,8 +34,8 @@ int main(int argc, char** argv) {
     std::vector<int> target_load_factors = {10, 20, 30, 40, 45, 50, 60, 70, 80, 90};
     
     uint64_t current_keys = 0;
-    std::vector<uint32_t> all_keys;
-    std::vector<uint32_t> all_values;
+    std::vector<KeyT> all_keys;
+    std::vector<ValueT> all_values;
     
     printf("%-15s | %-20s | %-20s | %-15s\n", "Load Factor %", "Insert (M keys/s)", "Lookup (M keys/s)", "Missing Keys");
     printf("--------------------------------------------------------------------------------------\n");
@@ -44,11 +44,11 @@ int main(int argc, char** argv) {
         uint64_t target_keys = (total_slots * target_pct) / 100;
         uint64_t keys_to_add = target_keys - current_keys;
         
-        std::vector<uint32_t> batch_keys(keys_to_add);
-        std::vector<uint32_t> batch_values(keys_to_add);
+        std::vector<KeyT> batch_keys(keys_to_add);
+        std::vector<ValueT> batch_values(keys_to_add);
         
         for (uint64_t i = 0; i < keys_to_add; ++i) {
-            uint32_t k = current_keys + i + 1;
+            KeyT k = (KeyT)(current_keys + i + 1);
             batch_keys[i] = k;
             batch_values[i] = k * 2;
             all_keys.push_back(k);
@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
         double insert_m_sec = (keys_to_add / 1e6) / insert_sec;
         
         // --- Measure Lookups ---
-        std::vector<uint32_t> out_values(target_keys, 0);
+        std::vector<ValueT> out_values(target_keys, 0);
         auto t_start_lkp = std::chrono::high_resolution_clock::now();
         for (uint64_t offset = 0; offset < target_keys; offset += BATCH_SIZE) {
             uint32_t count = std::min((uint64_t)BATCH_SIZE, target_keys - offset);

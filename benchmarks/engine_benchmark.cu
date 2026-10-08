@@ -35,15 +35,15 @@ int main(int argc, char** argv) {
     printf("  ✓ Engine initialized with %u initial buckets\n\n", INITIAL_BUCKETS);
 
     printf("[Phase 2] Preparing %u unique test keys...\n", NUM_KEYS);
-    std::vector<uint32_t> keys(NUM_KEYS);
-    std::vector<uint32_t> values(NUM_KEYS);
+    std::vector<KeyT> keys(NUM_KEYS);
+    std::vector<ValueT> values(NUM_KEYS);
 
-    std::mt19937 rng(42);
-    std::uniform_int_distribution<uint32_t> dist(1, 0xFFFFFFFE); // Avoid 0
+    std::mt19937_64 rng(42);
+    std::uniform_int_distribution<uint64_t> dist(1, 0xFFFFFFFFFFFFFFFEULL); // Avoid 0
 
-    std::set<uint32_t> unique_keys;
+    std::set<KeyT> unique_keys;
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
-        uint32_t k;
+        KeyT k;
         do {
             k = dist(rng);
         } while (unique_keys.count(k) > 0);
@@ -76,7 +76,7 @@ int main(int argc, char** argv) {
     printf("  ✓ Insert throughput: %.2f M keys/sec\n\n", (NUM_KEYS / 1e6) / insert_sec);
 
     printf("[Phase 4] Lookup Benchmark (Positive)...\n");
-    std::vector<uint32_t> out_values(NUM_KEYS, 0);
+    std::vector<ValueT> out_values(NUM_KEYS, 0);
     
     uint32_t found_count = 0;
     uint32_t value_mismatch = 0;
@@ -107,13 +107,13 @@ int main(int argc, char** argv) {
 
     printf("[Phase 5] Negative Lookup Benchmark...\n");
     const uint32_t NUM_MISSING_KEYS = 100000;
-    std::vector<uint32_t> missing_keys(NUM_MISSING_KEYS);
-    std::vector<uint32_t> out_missing(NUM_MISSING_KEYS, 0);
+    std::vector<KeyT> missing_keys(NUM_MISSING_KEYS);
+    std::vector<ValueT> out_missing(NUM_MISSING_KEYS, 0);
     
     for (uint32_t i = 0; i < NUM_MISSING_KEYS; ++i) {
-        uint32_t mk;
+        KeyT mk;
         do {
-            mk = dist(rng) + 0x80000000;
+            mk = dist(rng) | 0x8000000000000000ULL;
         } while (unique_keys.count(mk) > 0);
         missing_keys[i] = mk;
     }

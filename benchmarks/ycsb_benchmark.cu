@@ -30,12 +30,12 @@ int main(int argc, char** argv) {
     printf("  ✓ Engine initialized with %u initial buckets\n\n", INITIAL_BUCKETS);
 
     printf("[Phase 2] Loading %u sequential keys...\n", NUM_KEYS);
-    std::vector<uint32_t> keys(NUM_KEYS);
-    std::vector<uint32_t> values(NUM_KEYS);
+    std::vector<KeyT> keys(NUM_KEYS);
+    std::vector<ValueT> values(NUM_KEYS);
     
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
-        keys[i] = i + 1; // 1-indexed to avoid EMPTY_KEY (0)
-        values[i] = (i + 1) * 2;
+        keys[i] = (KeyT)(i + 1); // 1-indexed to avoid EMPTY_KEY (0)
+        values[i] = (ValueT)(i + 1) * 2;
     }
 
     auto t_start = std::chrono::high_resolution_clock::now();
@@ -48,8 +48,8 @@ int main(int argc, char** argv) {
     printf("  ✓ Insert throughput: %.2f M keys/sec\n\n", (NUM_KEYS / 1e6) / std::chrono::duration<double>(t_end - t_start).count());
 
     printf("[Phase 3] Generating %u Zipfian queries...\n", NUM_OPERATIONS);
-    std::vector<uint32_t> query_keys(NUM_OPERATIONS);
-    std::vector<uint32_t> out_values(NUM_OPERATIONS, 0);
+    std::vector<KeyT> query_keys(NUM_OPERATIONS);
+    std::vector<ValueT> out_values(NUM_OPERATIONS, 0);
 
     ScrambledZipfianGenerator zipf(1, NUM_KEYS);
     for (uint32_t i = 0; i < NUM_OPERATIONS; ++i) {

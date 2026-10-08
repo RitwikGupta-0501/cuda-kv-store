@@ -37,15 +37,15 @@ int main(int argc, char** argv) {
     printf("  Total keys to insert: %u\n", NUM_KEYS);
     printf("  Batch size: %u\n\n", BATCH_SIZE);
 
-    std::vector<uint32_t> keys(NUM_KEYS);
-    std::vector<uint32_t> values(NUM_KEYS);
+    std::vector<KeyT> keys(NUM_KEYS);
+    std::vector<ValueT> values(NUM_KEYS);
 
-    std::mt19937 rng(42);
-    std::uniform_int_distribution<uint32_t> dist(1, 0xFFFFFFFE); // Avoid 0
+    std::mt19937_64 rng(42);
+    std::uniform_int_distribution<uint64_t> dist(1, 0xFFFFFFFFFFFFFFFEULL); // Avoid 0
 
-    std::set<uint32_t> unique_keys;
+    std::set<KeyT> unique_keys;
     for (uint32_t i = 0; i < NUM_KEYS; ++i) {
-        uint32_t k;
+        KeyT k;
         do {
             k = dist(rng);
         } while (unique_keys.count(k) > 0);
@@ -73,6 +73,7 @@ int main(int argc, char** argv) {
                    (offset / BATCH_SIZE) + 1, total_success);
         }
     }
+    engine.sync_all();
 
     time_t phase3_end = time(NULL);
     printf("\n  Insert phase complete in %.1fs\n\n", difftime(phase3_end, phase3_start));
@@ -86,9 +87,9 @@ int main(int argc, char** argv) {
     for (uint32_t offset = 0; offset < NUM_KEYS; offset += BATCH_SIZE) {
         uint32_t current_batch_size = std::min((uint32_t)BATCH_SIZE, (uint32_t)(NUM_KEYS - offset));
         
-        std::vector<uint32_t> out_values(current_batch_size);
+        std::vector<ValueT> out_values(current_batch_size);
         
-        engine.submit_lookup_batch(&keys[offset], out_values.data(), current_batch_size);
+        engine.submit_lookup_batch(&keys[offset], out_values.data(), current_batch_size).get();
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
             if (out_values[i] != NOT_FOUND) {
@@ -104,10 +105,10 @@ int main(int argc, char** argv) {
     // ========== Phase 5: Verification (Negative Lookups) ==========
     printf("[Phase 5] Negative lookups (0%% Hit Rate Expected)...\n");
     const uint32_t NUM_MISSING_KEYS = 50000;
-    std::vector<uint32_t> missing_keys(NUM_MISSING_KEYS);
+    std::vector<KeyT> missing_keys(NUM_MISSING_KEYS);
     
     for (uint32_t i = 0; i < NUM_MISSING_KEYS; ++i) {
-        missing_keys[i] = dist(rng) + 0x80000000; 
+        missing_keys[i] = dist(rng) | 0x8000000000000000ULL; 
     }
     
     uint32_t false_positives = 0;
@@ -115,9 +116,9 @@ int main(int argc, char** argv) {
     for (uint32_t offset = 0; offset < NUM_MISSING_KEYS; offset += BATCH_SIZE) {
         uint32_t current_batch_size = std::min((uint32_t)BATCH_SIZE, (uint32_t)(NUM_MISSING_KEYS - offset));
         
-        std::vector<uint32_t> out_values(current_batch_size);
+        std::vector<ValueT> out_values(current_batch_size);
         
-        engine.submit_lookup_batch(&missing_keys[offset], out_values.data(), current_batch_size);
+        engine.submit_lookup_batch(&missing_keys[offset], out_values.data(), current_batch_size).get();
         
         for (uint32_t i = 0; i < current_batch_size; ++i) {
             if (out_values[i] != NOT_FOUND) false_positives++;
