@@ -12,6 +12,7 @@
 #include <condition_variable>
 #include <future>
 #include <vector>
+#include <queue>
 
 namespace warpkv {
 
@@ -37,6 +38,48 @@ struct PipelineStreams {
 // ============================================================================
 struct LookupFutureResult {
     std::vector<ValueT> values; ///< Output values, parallel to input keys.
+};
+
+// ============================================================================
+// SlotPool — Thread-safe bounded queue of pipeline slot leases
+// ============================================================================
+class SlotPool {
+private:
+    std::queue<int>         available_slots_;
+    std::mutex              mutex_;
+    std::condition_variable cv_;
+    int                     total_slots_{0};
+
+public:
+    SlotPool() = default;
+
+    void init(int num_slots) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        while (!available_slots_.empty()) available_slots_.pop();
+        total_slots_ = num_slots;
+        for (int i = 0; i < num_slots; ++i) {
+            available_slots_.push(i);
+        }
+    }
+
+    int acquire() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [this]() { return !available_slots_.empty(); });
+        int slot = available_slots_.front();
+        available_slots_.pop();
+        return slot;
+    }
+
+    void release(int slot) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        available_slots_.push(slot);
+        cv_.notify_one();
+    }
+
+    void wait_all_idle() {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cv_.wait(lock, [this]() { return static_cast<int>(available_slots_.size()) == total_slots_; });
+    }
 };
 
 class WarpKVEngine {
@@ -77,8 +120,8 @@ private:
     uint64_t         active_epoch[NUM_SLOTS]            = {0, 0, 0};
 
     // Concurrency control
-    std::atomic<uint32_t> current_slot{0};
-    std::mutex            slot_mutex[NUM_SLOTS];
+    SlotPool   slot_pool;
+    std::mutex slot_mutex[NUM_SLOTS];
 
     // Table and EBR
     EpochTable            epoch_table;
@@ -219,6 +262,10 @@ private:
     void         rehash_worker();
     void         update_graph_nodes(int slot, BucketTable* current_tbl);
     void         apply_backpressure();
+
+    static void CUDART_CB host_void_callback(void* data);
+    static void CUDART_CB host_lookup_vector_callback(void* data);
+    static void CUDART_CB host_lookup_buffer_callback(void* data);
 };
 
 } // namespace warpkv

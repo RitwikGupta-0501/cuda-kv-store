@@ -27,6 +27,7 @@ namespace warpkv {
 WarpKVEngine::WarpKVEngine() {}
 
 WarpKVEngine::~WarpKVEngine() {
+    sync_all();
     {
         std::lock_guard<std::mutex> lock(rehash_mutex);
         stop_rehash_thread = true;
@@ -142,6 +143,7 @@ void WarpKVEngine::init(uint32_t num_buckets, WarpKVAllocator* allocator) {
     CUDA_CHECK(cudaStreamCreate(&rehash_stream));
     rehash_thread = std::thread(&WarpKVEngine::rehash_worker, this);
 
+    slot_pool.init(NUM_SLOTS);
     build_graphs();
 }
 
@@ -428,57 +430,87 @@ void WarpKVEngine::rehash_worker() {
 }
 
 // ============================================================================
-// Async submit helpers
+// Async submit host callbacks and context types
 // ============================================================================
 
-// Helper: spin-poll cudaEventQuery in a std::async thread.
-// Called from submit_*_batch to build the completion future.
-// The future thread owns a captured copy of slot metadata it needs.
-static std::future<void> make_completion_future(cudaEvent_t ev_done) {
-    return std::async(std::launch::async, [ev_done]() {
-        cudaError_t status;
-        do {
-            status = cudaEventQuery(ev_done);
-            if (status == cudaSuccess) break;
-            if (status != cudaErrorNotReady) {
-                cudaEventDestroy(ev_done);
-                throw std::runtime_error(
-                    std::string("CUDA event error: ") + cudaGetErrorString(status));
-            }
-            // Yield to avoid burning 100% CPU while waiting.
-            std::this_thread::yield();
-        } while (true);
-        cudaEventDestroy(ev_done);
-    });
+struct VoidContext {
+    WarpKVEngine* engine;
+    int           slot;
+    uint64_t      epoch;
+    bool          is_insert;
+    std::promise<void> promise;
+};
+
+struct LookupVectorContext {
+    WarpKVEngine* engine;
+    int           slot;
+    uint64_t      epoch;
+    const ValueT* slot_out;
+    uint32_t      count;
+    std::promise<LookupFutureResult> promise;
+};
+
+struct LookupBufferContext {
+    WarpKVEngine* engine;
+    int           slot;
+    uint64_t      epoch;
+    ValueT*       user_out;
+    const ValueT* slot_out;
+    uint32_t      count;
+    std::promise<void> promise;
+};
+
+void CUDART_CB WarpKVEngine::host_void_callback(void* data) {
+    auto* ctx = static_cast<VoidContext*>(data);
+    try {
+        ctx->engine->release_table(ctx->epoch);
+        if (ctx->is_insert) {
+            ctx->engine->active_inserts.fetch_sub(1, std::memory_order_seq_cst);
+        }
+        ctx->engine->slot_pool.release(ctx->slot);
+        ctx->promise.set_value();
+    } catch (...) {
+        ctx->engine->release_table(ctx->epoch);
+        if (ctx->is_insert) {
+            ctx->engine->active_inserts.fetch_sub(1, std::memory_order_seq_cst);
+        }
+        ctx->engine->slot_pool.release(ctx->slot);
+        ctx->promise.set_exception(std::current_exception());
+    }
+    delete ctx;
 }
 
-// Helper: similar to above but for lookup — also copies output values.
-static std::future<LookupFutureResult> make_lookup_future(
-    cudaEvent_t     ev_done,
-    ValueT*         h_values_out_slot,
-    uint32_t        count)
-{
-    return std::async(std::launch::async,
-        [ev_done, h_values_out_slot, count]() -> LookupFutureResult
-    {
-        cudaError_t status;
-        do {
-            status = cudaEventQuery(ev_done);
-            if (status == cudaSuccess) break;
-            if (status != cudaErrorNotReady) {
-                cudaEventDestroy(ev_done);
-                throw std::runtime_error(
-                    std::string("CUDA event error: ") + cudaGetErrorString(status));
-            }
-            std::this_thread::yield();
-        } while (true);
-
-        // D→H copy is now complete — safe to read pinned buffer.
+void CUDART_CB WarpKVEngine::host_lookup_vector_callback(void* data) {
+    auto* ctx = static_cast<LookupVectorContext*>(data);
+    try {
         LookupFutureResult result;
-        result.values.assign(h_values_out_slot, h_values_out_slot + count);
-        cudaEventDestroy(ev_done);
-        return result;
-    });
+        result.values.assign(ctx->slot_out, ctx->slot_out + ctx->count);
+        ctx->engine->release_table(ctx->epoch);
+        ctx->engine->slot_pool.release(ctx->slot);
+        ctx->promise.set_value(std::move(result));
+    } catch (...) {
+        ctx->engine->release_table(ctx->epoch);
+        ctx->engine->slot_pool.release(ctx->slot);
+        ctx->promise.set_exception(std::current_exception());
+    }
+    delete ctx;
+}
+
+void CUDART_CB WarpKVEngine::host_lookup_buffer_callback(void* data) {
+    auto* ctx = static_cast<LookupBufferContext*>(data);
+    try {
+        if (ctx->user_out && ctx->count > 0) {
+            std::memcpy(ctx->user_out, ctx->slot_out, ctx->count * sizeof(ValueT));
+        }
+        ctx->engine->release_table(ctx->epoch);
+        ctx->engine->slot_pool.release(ctx->slot);
+        ctx->promise.set_value();
+    } catch (...) {
+        ctx->engine->release_table(ctx->epoch);
+        ctx->engine->slot_pool.release(ctx->slot);
+        ctx->promise.set_exception(std::current_exception());
+    }
+    delete ctx;
 }
 
 // ============================================================================
@@ -519,12 +551,10 @@ std::future<void> WarpKVEngine::submit_insert_batch(
         break;
     }
 
-    const int slot = current_slot.fetch_add(1, std::memory_order_relaxed) % NUM_SLOTS;
+    const int slot = slot_pool.acquire();
     std::lock_guard<std::mutex> lock(slot_mutex[slot]);
 
     // Drain the previous batch on this slot before overwriting its pinned buffers.
-    // This is the ONLY synchronization point — it waits for the PREVIOUS batch,
-    // not the one we're about to launch.
     CUDA_CHECK(cudaStreamSynchronize(streams[slot].h2d));
 
     uint64_t     epoch;
@@ -543,17 +573,12 @@ std::future<void> WarpKVEngine::submit_insert_batch(
     }
 
     CUDA_CHECK(cudaGraphLaunch(insert_graphs[slot], streams[slot].h2d));
-    // NOTE: No cudaStreamSynchronize here. Graph runs asynchronously.
 
-    cudaEvent_t ev_done;
-    CUDA_CHECK(cudaEventCreateWithFlags(&ev_done, cudaEventDisableTiming));
-    CUDA_CHECK(cudaEventRecord(ev_done, streams[slot].h2d));
+    auto* ctx = new VoidContext{this, slot, epoch, true, {}};
+    auto fut = ctx->promise.get_future();
+    CUDA_CHECK(cudaLaunchHostFunc(streams[slot].h2d, &WarpKVEngine::host_void_callback, ctx));
 
-    release_table(epoch);
-    active_inserts.fetch_sub(1, std::memory_order_seq_cst);
-
-    // Return a future that completes when ev_done fires.
-    return make_completion_future(ev_done);
+    return fut;
 }
 
 // ============================================================================
@@ -575,7 +600,7 @@ std::future<LookupFutureResult> WarpKVEngine::submit_lookup_batch(
 
     apply_backpressure();
 
-    const int slot = current_slot.fetch_add(1, std::memory_order_relaxed) % NUM_SLOTS;
+    const int slot = slot_pool.acquire();
     std::lock_guard<std::mutex> lock(slot_mutex[slot]);
 
     // Drain previous batch on this slot.
@@ -596,16 +621,12 @@ std::future<LookupFutureResult> WarpKVEngine::submit_lookup_batch(
     }
 
     CUDA_CHECK(cudaGraphLaunch(lookup_graphs[slot], streams[slot].h2d));
-    // NOTE: No cudaStreamSynchronize here — the future owns the completion wait.
 
-    cudaEvent_t ev_done;
-    CUDA_CHECK(cudaEventCreateWithFlags(&ev_done, cudaEventDisableTiming));
-    CUDA_CHECK(cudaEventRecord(ev_done, streams[slot].h2d));
+    auto* ctx = new LookupVectorContext{this, slot, epoch, h_values_out[slot], count, {}};
+    auto fut = ctx->promise.get_future();
+    CUDA_CHECK(cudaLaunchHostFunc(streams[slot].h2d, &WarpKVEngine::host_lookup_vector_callback, ctx));
 
-    release_table(epoch);
-
-    // Future polls ev_done then copies results from the pinned output buffer.
-    return make_lookup_future(ev_done, h_values_out[slot], count);
+    return fut;
 }
 
 std::future<void> WarpKVEngine::submit_lookup_batch(
@@ -624,7 +645,7 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
 
     apply_backpressure();
 
-    const int slot = current_slot.fetch_add(1, std::memory_order_relaxed) % NUM_SLOTS;
+    const int slot = slot_pool.acquire();
     std::lock_guard<std::mutex> lock(slot_mutex[slot]);
 
     // Drain previous batch on this slot.
@@ -646,31 +667,11 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
 
     CUDA_CHECK(cudaGraphLaunch(lookup_graphs[slot], streams[slot].h2d));
 
-    cudaEvent_t ev_done;
-    CUDA_CHECK(cudaEventCreateWithFlags(&ev_done, cudaEventDisableTiming));
-    CUDA_CHECK(cudaEventRecord(ev_done, streams[slot].h2d));
+    auto* ctx = new LookupBufferContext{this, slot, epoch, values_out, h_values_out[slot], count, {}};
+    auto fut = ctx->promise.get_future();
+    CUDA_CHECK(cudaLaunchHostFunc(streams[slot].h2d, &WarpKVEngine::host_lookup_buffer_callback, ctx));
 
-    release_table(epoch);
-
-    ValueT* h_out = h_values_out[slot];
-    return std::async(std::launch::async, [ev_done, h_out, values_out, count]() {
-        cudaError_t status;
-        do {
-            status = cudaEventQuery(ev_done);
-            if (status == cudaSuccess) break;
-            if (status != cudaErrorNotReady) {
-                cudaEventDestroy(ev_done);
-                throw std::runtime_error(
-                    std::string("CUDA event error: ") + cudaGetErrorString(status));
-            }
-            std::this_thread::yield();
-        } while (true);
-
-        if (values_out && count > 0) {
-            std::memcpy(values_out, h_out, count * sizeof(ValueT));
-        }
-        cudaEventDestroy(ev_done);
-    });
+    return fut;
 }
 
 // ============================================================================
@@ -692,7 +693,7 @@ std::future<void> WarpKVEngine::submit_delete_batch(
 
     apply_backpressure();
 
-    const int slot = current_slot.fetch_add(1, std::memory_order_relaxed) % NUM_SLOTS;
+    const int slot = slot_pool.acquire();
     std::lock_guard<std::mutex> lock(slot_mutex[slot]);
 
     // Drain previous batch on this slot.
@@ -713,15 +714,12 @@ std::future<void> WarpKVEngine::submit_delete_batch(
     }
 
     CUDA_CHECK(cudaGraphLaunch(delete_graphs[slot], streams[slot].h2d));
-    // NOTE: No cudaStreamSynchronize here.
 
-    cudaEvent_t ev_done;
-    CUDA_CHECK(cudaEventCreateWithFlags(&ev_done, cudaEventDisableTiming));
-    CUDA_CHECK(cudaEventRecord(ev_done, streams[slot].h2d));
+    auto* ctx = new VoidContext{this, slot, epoch, false, {}};
+    auto fut = ctx->promise.get_future();
+    CUDA_CHECK(cudaLaunchHostFunc(streams[slot].h2d, &WarpKVEngine::host_void_callback, ctx));
 
-    release_table(epoch);
-
-    return make_completion_future(ev_done);
+    return fut;
 }
 
 // ============================================================================
@@ -920,6 +918,7 @@ void WarpKVEngine::submit_delete_batch_sync(
 }
 
 void WarpKVEngine::sync_all() {
+    slot_pool.wait_all_idle();
     for (int i = 0; i < NUM_SLOTS; ++i) {
         std::lock_guard<std::mutex> lock(slot_mutex[i]);
         CUDA_CHECK(cudaStreamSynchronize(streams[i].h2d));
