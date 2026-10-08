@@ -45,7 +45,7 @@
 ---
 
 ## Phase 2 & 3: 64-bit Type System + Half-Warp Optimization
-*Status: IN PROGRESS*
+*Status: COMPLETED*
 
 ### Sub-Phase 2.1: Type Abstraction (Plumbing)
 - [x] Define `KeyT` and `ValueT` in `warpkv_device.cuh` (default to `uint32_t`).
