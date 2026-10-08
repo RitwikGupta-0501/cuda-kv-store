@@ -36,11 +36,11 @@ TEST(EnginePipeline, ConcurrentSubmissions_10Threads_100kBatches) {
                 }
                 
                 // Insert
-                engine.submit_insert_batch(keys.data(), values.data(), BATCH_SIZE);
+                engine.submit_insert_batch(keys.data(), values.data(), BATCH_SIZE).get();
                 total_inserts += BATCH_SIZE;
                 
                 // Lookup immediately after (stress the pipeline)
-                engine.submit_lookup_batch(keys.data(), values_out.data(), BATCH_SIZE);
+                engine.submit_lookup_batch(keys.data(), values_out.data(), BATCH_SIZE).get();
                 total_lookups += BATCH_SIZE;
                 
                 for (uint32_t i = 0; i < BATCH_SIZE; ++i) {
