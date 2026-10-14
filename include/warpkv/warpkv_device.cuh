@@ -34,9 +34,9 @@ namespace warpkv {
 // =============================================================================
 // Type Aliases
 // =============================================================================
-// Abstracted types to support smooth migration to 64-bit keys/values.
-using KeyT   = unsigned long long;
-using ValueT = unsigned long long;
+// Abstracted types to support API 1 (GPU Cache).
+using KeyT   = int64_t;
+using ValueT = uint32_t; // Slab Index
 
 // =============================================================================
 // Constants
@@ -48,46 +48,43 @@ static constexpr uint32_t MAX_EVICTION_HOPS = 128;
 /// Stash fill level that triggers an automatic rehash request.
 static constexpr uint32_t BACKPRESSURE_THRESHOLD = 4096;
 
-/// Number of keys processed per GPU batch launch (host-side engine).
-static constexpr uint32_t BATCH_SIZE = 4096;
-
-/// Total overflow stash capacity (must be > 4 × BATCH_SIZE for in-flight safety).
+/// Total overflow stash capacity.
 static constexpr uint32_t STASH_CAPACITY = 32768;
 
-/// Number of slots per bucket (7 to fit exactly 128 bytes with 64-bit types)
-static constexpr uint32_t BUCKET_SLOTS = 7;
+/// Number of slots per bucket (9 fits exactly 128 bytes with 64-bit keys and 32-bit values)
+static constexpr uint32_t BUCKET_SLOTS = 9;
 
 /// Reserved key: value 0 cannot be inserted.
 /// The lock protocol uses atomicCAS(key, EMPTY_KEY, LOCK_SENTINEL) to claim
 /// empty slots, so key 0 is indistinguishable from an empty slot.
-static constexpr KeyT EMPTY_KEY = 0x0000000000000000ULL;
+static constexpr KeyT EMPTY_KEY = 0x0000000000000000LL;
 
 /// Transient sentinel written to a key slot while a warp holds the lock.
 /// No real key may ever have this value.
-static constexpr KeyT LOCK_SENTINEL = 0xFFFFFFFFFFFFFFFFULL;
+static constexpr KeyT LOCK_SENTINEL = 0xFFFFFFFFFFFFFFFFLL;
 
 /// Value returned by lookup on a miss.
-static constexpr ValueT NOT_FOUND = 0xFFFFFFFFFFFFFFFFULL;
+static constexpr ValueT NOT_FOUND = 0xFFFFFFFF;
 
 // =============================================================================
 // Bucket Structure — 128 bytes = 1 L2 cache line (AoS layout)
 // =============================================================================
 
 struct Bucket {
-    /// Keys: 7 slots × 8 bytes = 56 bytes
+    /// Keys: 9 slots × 8 bytes = 72 bytes
     KeyT keys[BUCKET_SLOTS];
 
-    /// Values: 7 slots × 8 bytes = 56 bytes
+    /// Values (Slab Indices): 9 slots × 4 bytes = 36 bytes
     ValueT values[BUCKET_SLOTS];
 
     /// Occupancy bitmask: bit i is set when slot i is occupied = 4 bytes
     uint32_t occupancy_mask;
 
-    /// Fingerprints: 7 slots × 1 byte = 7 bytes
+    /// Fingerprints: 9 slots × 1 byte = 9 bytes
     uint8_t fingerprint[BUCKET_SLOTS];
 
-    /// Padding to fill a 128-byte L2 cache line = 5 bytes
-    uint8_t _pad[5];
+    /// Padding to fill a 128-byte L2 cache line = 7 bytes
+    uint8_t _pad[7];
 };
 
 static_assert(sizeof(Bucket) == 128, "Bucket must be exactly 128 bytes (1 L2 cache line)");

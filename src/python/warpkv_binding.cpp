@@ -35,10 +35,10 @@ PYBIND11_MODULE(warpkv, m) {
                 throw std::invalid_argument("keys and values must have the same length");
             }
             if (keys_info.size == 0) return;
-            if (static_cast<size_t>(keys_info.size) > static_cast<size_t>(warpkv::BATCH_SIZE)) {
+            if (static_cast<size_t>(keys_info.size) > static_cast<size_t>(warpkv::HOST_CHUNK_SIZE)) {
                 throw std::invalid_argument(
-                    "Batch size exceeds BATCH_SIZE (" +
-                    std::to_string(warpkv::BATCH_SIZE) + ")");
+                    "Batch size exceeds HOST_CHUNK_SIZE (" +
+                    std::to_string(warpkv::HOST_CHUNK_SIZE) + ")");
             }
 
             auto* keys_ptr   = static_cast<const KeyT*>(keys_info.ptr);
@@ -50,7 +50,7 @@ PYBIND11_MODULE(warpkv, m) {
             engine.submit_insert_batch_sync(keys_ptr, values_ptr, count);
         },
         py::arg("keys"), py::arg("values"),
-        "Insert a batch of (key, value) pairs. Max batch size: BATCH_SIZE (4096).\n"
+        "Insert a batch of (key, value) pairs. Max batch size: HOST_CHUNK_SIZE (4096).\n"
         "This call blocks until the GPU pipeline completes.")
 
         // ----------------------------------------------------------------
@@ -61,10 +61,10 @@ PYBIND11_MODULE(warpkv, m) {
         {
             const py::buffer_info keys_info = keys.request();
             if (keys_info.size == 0) return py::array_t<KeyT>(0);
-            if (static_cast<size_t>(keys_info.size) > static_cast<size_t>(warpkv::BATCH_SIZE)) {
+            if (static_cast<size_t>(keys_info.size) > static_cast<size_t>(warpkv::HOST_CHUNK_SIZE)) {
                 throw std::invalid_argument(
-                    "Batch size exceeds BATCH_SIZE (" +
-                    std::to_string(warpkv::BATCH_SIZE) + ")");
+                    "Batch size exceeds HOST_CHUNK_SIZE (" +
+                    std::to_string(warpkv::HOST_CHUNK_SIZE) + ")");
             }
 
             auto* keys_ptr    = static_cast<const KeyT*>(keys_info.ptr);
@@ -85,7 +85,7 @@ PYBIND11_MODULE(warpkv, m) {
         py::arg("keys"),
         "Look up a batch of keys. Returns a NumPy array of values.\n"
         "Missing keys are returned as 0xFFFFFFFF (NOT_FOUND).\n"
-        "Max batch size: BATCH_SIZE (4096). Blocks until GPU completes.")
+        "Max batch size: HOST_CHUNK_SIZE (4096). Blocks until GPU completes.")
 
         // ----------------------------------------------------------------
         // delete_batch
@@ -95,10 +95,10 @@ PYBIND11_MODULE(warpkv, m) {
         {
             const py::buffer_info keys_info = keys.request();
             if (keys_info.size == 0) return;
-            if (static_cast<size_t>(keys_info.size) > static_cast<size_t>(warpkv::BATCH_SIZE)) {
+            if (static_cast<size_t>(keys_info.size) > static_cast<size_t>(warpkv::HOST_CHUNK_SIZE)) {
                 throw std::invalid_argument(
-                    "Batch size exceeds BATCH_SIZE (" +
-                    std::to_string(warpkv::BATCH_SIZE) + ")");
+                    "Batch size exceeds HOST_CHUNK_SIZE (" +
+                    std::to_string(warpkv::HOST_CHUNK_SIZE) + ")");
             }
 
             auto* keys_ptr   = static_cast<const KeyT*>(keys_info.ptr);
@@ -108,6 +108,6 @@ PYBIND11_MODULE(warpkv, m) {
             engine.submit_delete_batch_sync(keys_ptr, count);
         },
         py::arg("keys"),
-        "Delete a batch of keys. Max batch size: BATCH_SIZE (4096).\n"
+        "Delete a batch of keys. Max batch size: HOST_CHUNK_SIZE (4096).\n"
         "Blocks until GPU pipeline completes.");
 }

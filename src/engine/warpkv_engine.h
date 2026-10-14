@@ -85,6 +85,7 @@ public:
 class WarpKVEngine {
 private:
     static constexpr uint32_t NUM_SLOTS = 3;
+    static constexpr uint32_t HOST_CHUNK_SIZE = 4096;
 
     // Pinned host memory
     KeyT*         h_keys_in[NUM_SLOTS]          = {nullptr};
@@ -170,7 +171,7 @@ public:
     /// Insert a batch of (key, value) pairs asynchronously.
     /// @param keys    Host pointer to KeyT array.
     /// @param values  Host pointer to ValueT array.
-    /// @param count   Number of key-value pairs (must be <= BATCH_SIZE).
+    /// @param count   Number of key-value pairs (must be <= HOST_CHUNK_SIZE).
     /// @return Future that completes when the GPU pipeline finishes.
     std::future<void> submit_insert_batch(
         const KeyT* keys,
@@ -179,7 +180,7 @@ public:
 
     /// Look up a batch of keys asynchronously.
     /// @param keys   Host pointer to KeyT array.
-    /// @param count  Number of keys (must be <= BATCH_SIZE).
+    /// @param count  Number of keys (must be <= HOST_CHUNK_SIZE).
     /// @return Future containing a LookupFutureResult with the output values.
     std::future<LookupFutureResult> submit_lookup_batch(
         const KeyT* keys,
@@ -188,7 +189,7 @@ public:
     /// Look up a batch of keys asynchronously writing results into user-supplied buffer.
     /// @param keys        Host pointer to KeyT array.
     /// @param values_out  Host pointer to ValueT output buffer (must be valid until future completes).
-    /// @param count       Number of keys (must be <= BATCH_SIZE).
+    /// @param count       Number of keys (must be <= HOST_CHUNK_SIZE).
     /// @return Future that completes when D->H copy to values_out finishes.
     std::future<void> submit_lookup_batch(
         const KeyT* keys,
@@ -197,7 +198,7 @@ public:
 
     /// Delete a batch of keys asynchronously.
     /// @param keys   Host pointer to KeyT array.
-    /// @param count  Number of keys (must be <= BATCH_SIZE).
+    /// @param count  Number of keys (must be <= HOST_CHUNK_SIZE).
     /// @return Future that completes when the GPU pipeline finishes.
     std::future<void> submit_delete_batch(
         const KeyT* keys,
@@ -256,9 +257,10 @@ public:
 
     void disable_automatic_rehash(bool disable) { auto_rehash_disabled = disable; }
 
-private:
     BucketTable* acquire_table(uint64_t& out_epoch);
     void         release_table(uint64_t epoch);
+
+private:
     void         rehash_worker();
     void         update_graph_nodes(int slot, BucketTable* current_tbl);
     void         apply_backpressure();

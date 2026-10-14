@@ -127,17 +127,17 @@ void WarpKVEngine::init(uint32_t num_buckets, WarpKVAllocator* allocator) {
         CUDA_CHECK(cudaEventCreate(&ev_compute[i]));
         CUDA_CHECK(cudaEventCreateWithFlags(&ev_d2h[i], cudaEventDisableTiming));
 
-        CUDA_CHECK(cudaHostAlloc(&h_keys_in[i],         BATCH_SIZE * sizeof(KeyT),    cudaHostAllocDefault));
-        CUDA_CHECK(cudaHostAlloc(&h_values_in[i],       BATCH_SIZE * sizeof(ValueT),    cudaHostAllocDefault));
-        CUDA_CHECK(cudaHostAlloc(&h_values_out[i],      BATCH_SIZE * sizeof(ValueT),    cudaHostAllocDefault));
-        CUDA_CHECK(cudaHostAlloc(&h_insert_statuses[i], BATCH_SIZE * sizeof(InsertStatus), cudaHostAllocDefault));
-        CUDA_CHECK(cudaHostAlloc(&h_lookup_found[i],    BATCH_SIZE * sizeof(uint32_t),    cudaHostAllocDefault));
+        CUDA_CHECK(cudaHostAlloc(&h_keys_in[i],         HOST_CHUNK_SIZE * sizeof(KeyT),    cudaHostAllocDefault));
+        CUDA_CHECK(cudaHostAlloc(&h_values_in[i],       HOST_CHUNK_SIZE * sizeof(ValueT),    cudaHostAllocDefault));
+        CUDA_CHECK(cudaHostAlloc(&h_values_out[i],      HOST_CHUNK_SIZE * sizeof(ValueT),    cudaHostAllocDefault));
+        CUDA_CHECK(cudaHostAlloc(&h_insert_statuses[i], HOST_CHUNK_SIZE * sizeof(InsertStatus), cudaHostAllocDefault));
+        CUDA_CHECK(cudaHostAlloc(&h_lookup_found[i],    HOST_CHUNK_SIZE * sizeof(uint32_t),    cudaHostAllocDefault));
 
-        CUDA_CHECK(cudaMalloc(&d_keys_in[i],         BATCH_SIZE * sizeof(KeyT)));
-        CUDA_CHECK(cudaMalloc(&d_values_in[i],       BATCH_SIZE * sizeof(ValueT)));
-        CUDA_CHECK(cudaMalloc(&d_values_out[i],      BATCH_SIZE * sizeof(ValueT)));
-        CUDA_CHECK(cudaMalloc(&d_insert_statuses[i], BATCH_SIZE * sizeof(InsertStatus)));
-        CUDA_CHECK(cudaMalloc(&d_lookup_found[i],    BATCH_SIZE * sizeof(uint32_t)));
+        CUDA_CHECK(cudaMalloc(&d_keys_in[i],         HOST_CHUNK_SIZE * sizeof(KeyT)));
+        CUDA_CHECK(cudaMalloc(&d_values_in[i],       HOST_CHUNK_SIZE * sizeof(ValueT)));
+        CUDA_CHECK(cudaMalloc(&d_values_out[i],      HOST_CHUNK_SIZE * sizeof(ValueT)));
+        CUDA_CHECK(cudaMalloc(&d_insert_statuses[i], HOST_CHUNK_SIZE * sizeof(InsertStatus)));
+        CUDA_CHECK(cudaMalloc(&d_lookup_found[i],    HOST_CHUNK_SIZE * sizeof(uint32_t)));
     }
 
     CUDA_CHECK(cudaStreamCreate(&rehash_stream));
@@ -153,25 +153,25 @@ void WarpKVEngine::init(uint32_t num_buckets, WarpKVAllocator* allocator) {
 
 void WarpKVEngine::build_graphs() {
     dim3 block(256);
-    dim3 grid(BATCH_SIZE / 8);
+    dim3 grid(HOST_CHUNK_SIZE / 8);
 
     for (int slot = 0; slot < NUM_SLOTS; ++slot) {
 
         // ---- INSERT GRAPH --------------------------------------------------
         CUDA_CHECK(cudaStreamBeginCapture(streams[slot].h2d, cudaStreamCaptureModeGlobal));
 
-        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot],   h_keys_in[slot],   BATCH_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
-        CUDA_CHECK(cudaMemcpyAsync(d_values_in[slot], h_values_in[slot], BATCH_SIZE * sizeof(ValueT), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot],   h_keys_in[slot],   HOST_CHUNK_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaMemcpyAsync(d_values_in[slot], h_values_in[slot], HOST_CHUNK_SIZE * sizeof(ValueT), cudaMemcpyHostToDevice, streams[slot].h2d));
         CUDA_CHECK(cudaEventRecord(ev_h2d[slot], streams[slot].h2d));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
         warp_insert_kernel<<<grid, block, 0, streams[slot].compute>>>(
             epoch_table.arenas[0][0], d_stash_queue, d_needs_rehash_flag,
-            d_keys_in[slot], d_values_in[slot], d_insert_statuses[slot], nullptr, BATCH_SIZE);
+            d_keys_in[slot], d_values_in[slot], d_insert_statuses[slot], nullptr, HOST_CHUNK_SIZE);
         CUDA_CHECK(cudaEventRecord(ev_compute[slot], streams[slot].compute));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].d2h, ev_compute[slot], 0));
-        CUDA_CHECK(cudaMemcpyAsync(h_insert_statuses[slot], d_insert_statuses[slot], BATCH_SIZE * sizeof(InsertStatus), cudaMemcpyDeviceToHost, streams[slot].d2h));
+        CUDA_CHECK(cudaMemcpyAsync(h_insert_statuses[slot], d_insert_statuses[slot], HOST_CHUNK_SIZE * sizeof(InsertStatus), cudaMemcpyDeviceToHost, streams[slot].d2h));
         // ev_d2h signals that D→H copy is done — the future polls this event.
         CUDA_CHECK(cudaEventRecord(ev_d2h[slot], streams[slot].d2h));
 
@@ -200,18 +200,18 @@ void WarpKVEngine::build_graphs() {
         // ---- LOOKUP GRAPH --------------------------------------------------
         CUDA_CHECK(cudaStreamBeginCapture(streams[slot].h2d, cudaStreamCaptureModeGlobal));
 
-        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], BATCH_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], HOST_CHUNK_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
         CUDA_CHECK(cudaEventRecord(ev_h2d[slot], streams[slot].h2d));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
         warp_lookup_kernel<<<grid, block, 0, streams[slot].compute>>>(
             epoch_table.arenas[0][0], d_stash_queue,
-            d_keys_in[slot], d_values_out[slot], d_lookup_found[slot], BATCH_SIZE);
+            d_keys_in[slot], d_values_out[slot], d_lookup_found[slot], HOST_CHUNK_SIZE);
         CUDA_CHECK(cudaEventRecord(ev_compute[slot], streams[slot].compute));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].d2h, ev_compute[slot], 0));
-        CUDA_CHECK(cudaMemcpyAsync(h_values_out[slot],    d_values_out[slot],   BATCH_SIZE * sizeof(ValueT), cudaMemcpyDeviceToHost, streams[slot].d2h));
-        CUDA_CHECK(cudaMemcpyAsync(h_lookup_found[slot],  d_lookup_found[slot], BATCH_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost, streams[slot].d2h));
+        CUDA_CHECK(cudaMemcpyAsync(h_values_out[slot],    d_values_out[slot],   HOST_CHUNK_SIZE * sizeof(ValueT), cudaMemcpyDeviceToHost, streams[slot].d2h));
+        CUDA_CHECK(cudaMemcpyAsync(h_lookup_found[slot],  d_lookup_found[slot], HOST_CHUNK_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost, streams[slot].d2h));
         CUDA_CHECK(cudaEventRecord(ev_d2h[slot], streams[slot].d2h));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].h2d, ev_d2h[slot], 0));
@@ -237,18 +237,18 @@ void WarpKVEngine::build_graphs() {
         // ---- DELETE GRAPH --------------------------------------------------
         CUDA_CHECK(cudaStreamBeginCapture(streams[slot].h2d, cudaStreamCaptureModeGlobal));
 
-        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], BATCH_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
+        CUDA_CHECK(cudaMemcpyAsync(d_keys_in[slot], h_keys_in[slot], HOST_CHUNK_SIZE * sizeof(KeyT), cudaMemcpyHostToDevice, streams[slot].h2d));
         CUDA_CHECK(cudaEventRecord(ev_h2d[slot], streams[slot].h2d));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].compute, ev_h2d[slot], 0));
         // Reuse d_lookup_found buffer for delete flags.
         warp_delete_kernel<<<grid, block, 0, streams[slot].compute>>>(
             epoch_table.arenas[0][0], d_stash_queue,
-            d_keys_in[slot], d_lookup_found[slot], BATCH_SIZE);
+            d_keys_in[slot], d_lookup_found[slot], HOST_CHUNK_SIZE);
         CUDA_CHECK(cudaEventRecord(ev_compute[slot], streams[slot].compute));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].d2h, ev_compute[slot], 0));
-        CUDA_CHECK(cudaMemcpyAsync(h_lookup_found[slot], d_lookup_found[slot], BATCH_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost, streams[slot].d2h));
+        CUDA_CHECK(cudaMemcpyAsync(h_lookup_found[slot], d_lookup_found[slot], HOST_CHUNK_SIZE * sizeof(uint32_t), cudaMemcpyDeviceToHost, streams[slot].d2h));
         CUDA_CHECK(cudaEventRecord(ev_d2h[slot], streams[slot].d2h));
 
         CUDA_CHECK(cudaStreamWaitEvent(streams[slot].h2d, ev_d2h[slot], 0));
@@ -305,8 +305,8 @@ void WarpKVEngine::release_table(uint64_t epoch) {
 
 void WarpKVEngine::update_graph_nodes(int slot, BucketTable* current_tbl) {
     dim3    block(256);
-    dim3    grid(BATCH_SIZE / 8);
-    uint32_t batch_size = BATCH_SIZE;
+    dim3    grid(HOST_CHUNK_SIZE / 8);
+    uint32_t batch_size = HOST_CHUNK_SIZE;
     uint32_t* null_ptr  = nullptr;
 
     void* lookup_args[] = {
@@ -527,8 +527,8 @@ std::future<void> WarpKVEngine::submit_insert_batch(
         p.set_value();
         return p.get_future();
     }
-    if (count > BATCH_SIZE) {
-        throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
+    if (count > HOST_CHUNK_SIZE) {
+        throw std::invalid_argument("Batch size exceeds HOST_CHUNK_SIZE");
     }
 
     // Spin until any in-flight rehash is complete before accepting new inserts.
@@ -568,7 +568,7 @@ std::future<void> WarpKVEngine::submit_insert_batch(
     std::memcpy(h_values_in[slot], values, count * sizeof(ValueT));
 
     // Pad remainder with EMPTY_KEY so the fixed-size kernel ignores them.
-    for (uint32_t i = count; i < BATCH_SIZE; ++i) {
+    for (uint32_t i = count; i < HOST_CHUNK_SIZE; ++i) {
         h_keys_in[slot][i] = EMPTY_KEY;
     }
 
@@ -594,8 +594,8 @@ std::future<LookupFutureResult> WarpKVEngine::submit_lookup_batch(
         p.set_value(LookupFutureResult{});
         return p.get_future();
     }
-    if (count > BATCH_SIZE) {
-        throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
+    if (count > HOST_CHUNK_SIZE) {
+        throw std::invalid_argument("Batch size exceeds HOST_CHUNK_SIZE");
     }
 
     apply_backpressure();
@@ -616,7 +616,7 @@ std::future<LookupFutureResult> WarpKVEngine::submit_lookup_batch(
     }
 
     std::memcpy(h_keys_in[slot], keys, count * sizeof(KeyT));
-    for (uint32_t i = count; i < BATCH_SIZE; ++i) {
+    for (uint32_t i = count; i < HOST_CHUNK_SIZE; ++i) {
         h_keys_in[slot][i] = EMPTY_KEY;
     }
 
@@ -639,8 +639,8 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
         p.set_value();
         return p.get_future();
     }
-    if (count > BATCH_SIZE) {
-        throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
+    if (count > HOST_CHUNK_SIZE) {
+        throw std::invalid_argument("Batch size exceeds HOST_CHUNK_SIZE");
     }
 
     apply_backpressure();
@@ -661,7 +661,7 @@ std::future<void> WarpKVEngine::submit_lookup_batch(
     }
 
     std::memcpy(h_keys_in[slot], keys, count * sizeof(KeyT));
-    for (uint32_t i = count; i < BATCH_SIZE; ++i) {
+    for (uint32_t i = count; i < HOST_CHUNK_SIZE; ++i) {
         h_keys_in[slot][i] = EMPTY_KEY;
     }
 
@@ -687,8 +687,8 @@ std::future<void> WarpKVEngine::submit_delete_batch(
         p.set_value();
         return p.get_future();
     }
-    if (count > BATCH_SIZE) {
-        throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
+    if (count > HOST_CHUNK_SIZE) {
+        throw std::invalid_argument("Batch size exceeds HOST_CHUNK_SIZE");
     }
 
     apply_backpressure();
@@ -709,7 +709,7 @@ std::future<void> WarpKVEngine::submit_delete_batch(
     }
 
     std::memcpy(h_keys_in[slot], keys, count * sizeof(KeyT));
-    for (uint32_t i = count; i < BATCH_SIZE; ++i) {
+    for (uint32_t i = count; i < HOST_CHUNK_SIZE; ++i) {
         h_keys_in[slot][i] = EMPTY_KEY;
     }
 
@@ -737,9 +737,6 @@ std::future<void> WarpKVEngine::submit_insert_batch_device(
         std::promise<void> p;
         p.set_value();
         return p.get_future();
-    }
-    if (count > BATCH_SIZE) {
-        throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
     }
 
     while (true) {
@@ -811,9 +808,6 @@ std::future<void> WarpKVEngine::submit_lookup_batch_device(
         p.set_value();
         return p.get_future();
     }
-    if (count > BATCH_SIZE) {
-        throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
-    }
 
     uint64_t epoch;
     BucketTable* current_tbl = acquire_table(epoch);
@@ -857,9 +851,6 @@ std::future<void> WarpKVEngine::submit_delete_batch_device(
         std::promise<void> p;
         p.set_value();
         return p.get_future();
-    }
-    if (count > BATCH_SIZE) {
-        throw std::invalid_argument("Batch size exceeds BATCH_SIZE");
     }
 
     uint64_t epoch;
